@@ -32,20 +32,31 @@ canvas { display: block; }
   pointer-events: none;
 }
 
-/* ── Debug HUD ── */
+/* ── Status HUD ── */
 #hud {
   position: absolute; top: 14px; left: 14px;
   background: var(--panel); border: 1px solid var(--border);
-  border-radius: 10px; padding: 14px 16px; color: var(--ink);
+  border-radius: 10px; padding: 12px 14px; color: var(--ink);
   font-family: var(--mono); font-size: 11px; line-height: 1.75;
-  pointer-events: none; min-width: 268px; z-index: 10;
+  min-width: 252px; z-index: 10;
   backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 #hud h3 {
   font-family: var(--display); color: var(--accent);
-  font-size: 13px; font-weight: 700; margin-bottom: 8px;
+  font-size: 13px; font-weight: 700;
   letter-spacing: 1.5px; text-transform: uppercase;
 }
+#hud-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+#hud-clock { color: #eef4fb; font-weight: 600; font-size: 13px; }
+#hud-counts { display: flex; gap: 14px; margin: 6px 0 2px; }
+#hud .hud-count { display: inline-flex; align-items: center; gap: 5px; color: #eef4fb; font-weight: 600; }
+#hud .hud-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+#hud-netline { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+#hud-toggle {
+  background: none; border: none; color: var(--ink-dim); cursor: pointer;
+  font-family: var(--mono); font-size: 10px; padding: 0;
+}
+#hud-toggle:hover { color: var(--accent); }
 #hud .row { display: flex; justify-content: space-between; gap: 16px; }
 #hud .label { color: var(--ink-dim); }
 #hud .value { color: #eef4fb; font-weight: 600; }

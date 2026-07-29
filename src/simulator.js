@@ -257,6 +257,13 @@ export class Simulator {
 
   allTrainIds() { return [...this._trains.keys()]; }
 
+  /** Wall-clock hours of the simulated day (starts at SIM_START_HOUR). */
+  clockHours() {
+    const elapsedSimH = simulationHours(
+      (performance.now() - this._startTime) / 1000, CONFIG.SIM_TIME_SCALE);
+    return (CONFIG.SIM_START_HOUR + elapsedSimH) % 24;
+  }
+
   _latency() {
     const [lo, hi] = CONFIG.SIM_LATENCY_MS;
     return new Promise(r => setTimeout(r, rand(lo, hi)));

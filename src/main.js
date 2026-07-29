@@ -112,7 +112,7 @@ async function main() {
     // Keep the pinned pane tracking its live train
     if (ui.pinnedId) ui.updatePane(trainStore.get(ui.pinnedId));
 
-    hud.update({ rateLimiter, cache, trainStore, scheduler, apiClient });
+    hud.update({ rateLimiter, cache, trainStore, scheduler, apiClient, simulator });
     scene.render();
     requestAnimationFrame(frame);
   }
