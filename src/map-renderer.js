@@ -172,9 +172,19 @@ export class MapRenderer {
 
         const sx = ((s.px - panX) / visW + 0.5) * this._labelW;
         const sy = (0.5 - (s.py - panY) / visH) * this._labelH;
-        const key = Math.floor(sx / cell) + ',' + Math.floor(sy / cell);
-        if (used.has(key)) continue;
-        used.add(key);
+
+        // Reserve the label's full width in the occupancy grid so long
+        // names never overlap (majors, drawn first, win the contest).
+        const tw = ctx.measureText(s.name).width;
+        const gx0 = Math.floor((sx + 7) / cell);
+        const gx1 = Math.floor((sx + 7 + tw) / cell);
+        const gy = Math.floor(sy / cell);
+        let clash = false;
+        for (let gx = gx0; gx <= gx1; gx++) {
+          if (used.has(gx + ',' + gy)) { clash = true; break; }
+        }
+        if (clash) continue;
+        for (let gx = gx0; gx <= gx1; gx++) used.add(gx + ',' + gy);
         ctx.fillText(s.name, sx + 7, sy);
       }
     }

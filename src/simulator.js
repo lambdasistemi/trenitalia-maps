@@ -104,25 +104,21 @@ export class Simulator {
     this._tick();
   }
 
-  /** Advance all trains based on elapsed sim time (1 real s = 1 sim min). */
+  /** Advance all trains based on elapsed sim time (1 real s = 1 sim min).
+   *  Every train runs continuously, looping its route, so the map stays
+   *  dense and alive at all times. */
   _tick() {
     const elapsedMin = (performance.now() - this._startTime) / 1000;
-    const simHour = (elapsedMin / 60) % 24;
+    const simHour = (CONFIG.SIM_START_HOUR + elapsedMin / 60) % 24;
 
     for (const train of this._trains.values()) {
-      const tripDurationH = train.totalKm / train.speedKmh;
-      const activeStart = train.departHour;
-      const activeEnd = (train.departHour + tripDurationH) % 24;
-      const active = activeStart < activeEnd
-        ? (simHour >= activeStart && simHour <= activeEnd)
-        : (simHour >= activeStart || simHour <= activeEnd);
-
-      if (!active) { train.status = 'inactive'; continue; }
       train.status = 'running';
 
-      let hoursIntoTrip = simHour - activeStart;
-      if (hoursIntoTrip < 0) hoursIntoTrip += 24;
-      const kmIntoTrip = Math.min(hoursIntoTrip * train.speedKmh, train.totalKm);
+      // Phase along the day, offset by the train's departure hour, so
+      // trains are spread out along their routes rather than bunched.
+      let phase = simHour - train.departHour;
+      if (phase < 0) phase += 24;
+      const kmIntoTrip = (phase * train.speedKmh) % train.totalKm;
 
       let segIdx = 0;
       for (let j = 0; j < train.segments.length; j++) {

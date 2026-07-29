@@ -84,6 +84,9 @@ export const CONFIG = {
 
   // ── Simulator ──────────────────────────────────────────────────────
   SIM_NUM_TRAINS: 700,
+  // Sim clock starts at a busy hour so the map is dense from frame one
+  // (1 real second = 1 sim minute).
+  SIM_START_HOUR: 8,
   SIM_LATENCY_MS: [40, 180],       // random latency range
   SIM_ERROR_RATE: 0.03,            // 3% chance of 429
   SIM_SPEED_KMH: { regionale: 90, intercity: 130, freccia: 250 },

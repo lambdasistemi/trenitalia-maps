@@ -163,7 +163,7 @@ export class TrainStore {
         // 1 real second = 1 sim minute (matches simulator)
         const simHoursElapsed = dt / 60;
         const kmAdvanced = simHoursElapsed * t.speedKmh;
-        t.progressKm = Math.min(t.progressKm + kmAdvanced, t.totalKm);
+        t.progressKm = (t.progressKm + kmAdvanced) % t.totalKm;
 
         // Find current segment and interpolate position
         let segIdx = 0;
