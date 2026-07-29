@@ -38,7 +38,64 @@ export class MapRenderer {
     this._clusterMeshes = [];
     this._clusterGeo = new THREE.CircleGeometry(0.18, 20);
 
+    // Selection: pulsing ring around the pinned train + its route drawn
+    // on top of the rail network.
+    this._selectedId = null;
+    this._selRoute = null;
+    this._selRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.85, 1.02, 40),
+      new THREE.MeshBasicMaterial({ color: C.selection, transparent: true })
+    );
+    this._selRing.position.z = 0.05;
+    this._selRing.visible = false;
+    this._scene.add(this._selRing);
+
     this._initLabelLayer();
+  }
+
+  // ── Selection: highlight one train + its full route ──────────────────
+  setSelection(t) {
+    this.clearSelection();
+    if (!t) return;
+    this._selectedId = t.id;
+    this._selRing.visible = true;
+    if (!t.segments) return;
+    const verts = [];
+    for (const seg of t.segments) {
+      for (let i = 0; i < seg.g.length - 1; i++) {
+        const a = project(seg.g[i][1], seg.g[i][0]);
+        const b = project(seg.g[i + 1][1], seg.g[i + 1][0]);
+        verts.push(a.x, a.y, 0.045, b.x, b.y, 0.045);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    this._selRoute = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color: C.selection, transparent: true, opacity: 0.8 }));
+    this._scene.add(this._selRoute);
+  }
+
+  clearSelection() {
+    this._selectedId = null;
+    this._selRing.visible = false;
+    if (this._selRoute) {
+      this._scene.remove(this._selRoute);
+      this._selRoute.geometry.dispose();
+      this._selRoute.material.dispose();
+      this._selRoute = null;
+    }
+  }
+
+  _updateSelectionRing(trains, zoom, now) {
+    if (!this._selectedId) return;
+    const t = trains.find(tr => tr.id === this._selectedId);
+    if (!t) { this._selRing.visible = false; return; }
+    this._selRing.visible = true;
+    this._selRing.position.x = t.x;
+    this._selRing.position.y = t.y;
+    const pulse = 1 + 0.14 * Math.sin(now * 0.004);
+    this._selRing.scale.setScalar((0.28 / zoom) * pulse);
+    this._selRing.material.opacity = 0.75 + 0.25 * Math.sin(now * 0.004);
   }
 
   // ── 2D label overlay (canvas above the WebGL canvas) ─────────────────
@@ -199,6 +256,7 @@ export class MapRenderer {
   // ── Trains: pointed directional markers at constant screen size ──────
   updateTrains(trains, zoom) {
     const now = performance.now();
+    this._updateSelectionRing(trains, zoom, now);
     if (zoom < CONFIG.LOD_CLUSTER_ZOOM) {
       this._renderClustered(trains, zoom);
       return;

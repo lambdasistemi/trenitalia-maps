@@ -82,6 +82,7 @@ export const CONFIG = {
     trainStale: 0x5b6b7b,      // grey — uncertain
     cluster: 0x38bdf8,
     hudAccent: 0x38bdf8,
+    selection: 0x38bdf8,   // pinned train ring + route highlight
   },
 
   // ── Simulator ──────────────────────────────────────────────────────
