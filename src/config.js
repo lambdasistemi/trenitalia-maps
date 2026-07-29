@@ -86,9 +86,10 @@ export const CONFIG = {
   SIM_NUM_TRAINS: 700,
   // Sim clock starts at a busy hour so the map is dense from frame one.
   SIM_START_HOUR: 8,
-  // Time acceleration: 1 real second = SIM_SPEED_SCALE sim-minutes. 0.35 is
-  // a calm live-map pace (a 200 km/h train glides at well under 1 px/frame).
-  SIM_SPEED_SCALE: 0.35,
+  // Time acceleration: 1 real second = SIM_SPEED_SCALE sim-minutes. With
+  // smooth track-following motion (no jitter), 0.8 gives a clear glide:
+  // a 200 km/h train crosses ~1.8 px/s, a regionale ~0.8 px/s.
+  SIM_SPEED_SCALE: 0.8,
   // Turnaround layover at each terminus (hours), so a service pauses at the
   // end of its run instead of instantly reversing.
   SIM_LAYOVER_H: [0.2, 0.5],

@@ -47,6 +47,32 @@ export function lerpGeo(lat1, lng1, lat2, lng2, t) {
   return { lat: lat1 + (lat2 - lat1) * t, lng: lng1 + (lng2 - lng1) * t };
 }
 
+/** lat/lng at distance `d` (km) along a polyline (clamped to its ends). */
+function pointAtKm(g, cum, d) {
+  const total = cum[cum.length - 1];
+  d = Math.max(0, Math.min(total, d));
+  let i = 1;
+  while (i < cum.length - 1 && cum[i] < d) i++;
+  const segLen = cum[i] - cum[i - 1] || 1;
+  const t = (d - cum[i - 1]) / segLen;
+  const p0 = g[i - 1], p1 = g[i];
+  return { lat: p0[1] + (p1[1] - p0[1]) * t, lng: p0[0] + (p1[0] - p0[0]) * t };
+}
+
+/** Position + track heading at distance `d` (km) along a polyline.
+ *  g: array of [lng,lat]; cum: cumulative km at each vertex (cum[0]=0).
+ *  The heading is the bearing of a ±400 m chord around the point, so it
+ *  reflects the local track direction rather than jittering per vertex. */
+export function pointAlongGeometry(g, cum, d) {
+  const pos = pointAtKm(g, cum, d);
+  const W = 0.4;
+  const before = pointAtKm(g, cum, d - W);
+  const after = pointAtKm(g, cum, d + W);
+  const a = project(before.lat, before.lng), b = project(after.lat, after.lng);
+  const angle = Math.atan2(b.x - a.x, b.y - a.y);
+  return { lat: pos.lat, lng: pos.lng, angle };
+}
+
 /** Position of a shuttle service at a given phase (hours since departure).
  *  Models a realistic timetable: run origin→dest, lay over at the terminus,
  *  run dest→origin, lay over, repeat. Position is forecast from schedule +

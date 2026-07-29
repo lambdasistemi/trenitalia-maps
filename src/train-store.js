@@ -9,22 +9,16 @@
 // toward the truth over several frames (no teleporting).
 
 import { CONFIG } from './config.js';
-import { project, lerpGeo, shuttlePosition } from './projection.js';
+import { project, shuttlePosition, pointAlongGeometry } from './projection.js';
 import { stationById } from './stations.js';
 
 export class TrainStore {
   constructor() {
     this._trains = new Map(); // trainId → TrainState
-    this._rail = null;        // RailIndex for snapping onto real tracks
     this.renderedCount = 0;
     this.sampledThisSecond = 0;
     this._sampleWindow = 0;
     this._sampleWindowStart = performance.now();
-  }
-
-  /** Provide the rail index used to snap forecast positions onto tracks. */
-  setRailIndex(rail) {
-    this._rail = rail;
   }
 
   /** Seed a train from static timetable data (free — outside live budget).
@@ -162,18 +156,18 @@ export class TrainStore {
       // ── Forecast from the timetable: advance the phase and evaluate the
       //    shuttle schedule (out → layover → back → layover). ──
       let dir = t.direction ?? 1;
-      let stopped = false;
+      let trackAngle = t.trackAngle ?? 0;
       if (t.segments && t.status === 'running') {
         t.phaseH = (t.phaseH ?? 0) + (dt * CONFIG.SIM_SPEED_SCALE) / 60;
-        const pos = shuttlePosition(
+        const sp = shuttlePosition(
           t.totalKm, t.speedKmh, t.layoverH ?? 0.3, t.phaseH - t.delayMin / 60);
-        const km = pos.km;
-        dir = pos.dir;
-        stopped = pos.stopped;
+        const km = sp.km;
+        dir = sp.dir;
         t.progressKm = km;
         t.direction = dir;
 
-        // Straight-line forecast position along the route segments.
+        // Position along the segment's real rail geometry (no snapping — the
+        // path IS the track, so the train can't wander or jump lines).
         let segStart = 0, segIdx = 0;
         for (let j = 0; j < t.segments.length; j++) {
           const seg = t.segments[j];
@@ -181,42 +175,35 @@ export class TrainStore {
           segStart += seg.km;
         }
         const seg = t.segments[segIdx];
-        const from = stationById.get(seg.from);
-        const to = stationById.get(seg.to);
-        if (from && to) {
-          const frac = Math.min(Math.max((km - segStart) / seg.km, 0), 1);
-          const p = lerpGeo(from.lat, from.lng, to.lat, to.lng, frac);
-          t.lat = p.lat;
-          t.lng = p.lng;
+        if (seg.g) {
+          const pos = pointAlongGeometry(seg.g, seg.cum, km - segStart);
+          t.lat = pos.lat;
+          t.lng = pos.lng;
+          trackAngle = pos.angle;
+          t.trackAngle = trackAngle;
         }
         t.currentSegIdx = segIdx;
       }
 
       t.lastTickTime = now;
 
-      // ── Project, then snap onto the nearest real track so the forecast
-      //    follows the visible rail instead of cutting chords. ──
+      // ── Project to world coords. ──
       const proj = project(t.lat, t.lng);
-      let fx = proj.x, fy = proj.y, trackAngle = null;
-      if (this._rail) {
-        const snap = this._rail.nearest(proj.x, proj.y);
-        if (snap.dist < CONFIG.SNAP_MAX_WORLD) {
-          fx = snap.x;
-          fy = snap.y;
-          trackAngle = snap.angle;
-        }
-      }
-      t.x = fx;
-      t.y = fy;
+      t.x = proj.x;
+      t.y = proj.y;
 
-      // ── Heading: align to the track bearing (flipped on the return leg),
-      //    smoothed so the glyph banks gently through curves. ──
-      if (trackAngle != null && dir !== 0) {
-        const target = trackAngle + (dir < 0 ? Math.PI : 0);
-        let diff = target - (t.heading ?? 0);
-        while (diff > Math.PI) diff -= 2 * Math.PI;
-        while (diff < -Math.PI) diff += 2 * Math.PI;
-        t.heading = (t.heading ?? 0) + diff * 0.2;
+      // ── Heading: align to the track bearing, but rate-limited so the glyph
+      //    rotates gradually (like a real train on a curve) and never spins,
+      //    even across sharp junction chords. The rectangle is 180°-symmetric,
+      //    so we track the undirected track angle in [-90°, 90°]. ──
+      {
+        const norm = a => { a = a % Math.PI; if (a > Math.PI / 2) a -= Math.PI; if (a < -Math.PI / 2) a += Math.PI; return a; };
+        const target = norm(trackAngle);
+        let diff = target - norm(t.heading ?? 0);
+        const maxStep = 2.0 * dt; // ≤ ~115°/s — gradual, never a snap
+        if (diff > maxStep) diff = maxStep;
+        else if (diff < -maxStep) diff = -maxStep;
+        t.heading = norm((t.heading ?? 0) + diff);
       }
 
       if (age < CONFIG.EXPIRE_THRESHOLD_MS) rendered++;

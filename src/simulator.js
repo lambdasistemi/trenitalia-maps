@@ -5,9 +5,9 @@
 // The app talks to this exactly as it would to the real API — through the
 // rate limiter and cache.
 
-import { STATIONS, buildAdjacency, stationById } from './stations.js';
+import { STATIONS, EDGES, buildAdjacency, stationById } from './stations.js';
 import { CONFIG } from './config.js';
-import { distanceKm, shuttlePosition } from './projection.js';
+import { distanceKm, shuttlePosition, pointAlongGeometry } from './projection.js';
 
 const TYPE_PREFIX = { regionale: 'R', intercity: 'IC', freccia: 'FR' };
 
@@ -41,41 +41,52 @@ export class Simulator {
     this._generateTrains();
   }
 
-  /** Random walk on the rail graph, constrained to stations ≤ maxTier. */
+  /** Random walk on the rail graph (stations ≤ maxTier). Returns the station
+   *  path plus the edge taken at each step, so the route carries real geometry. */
   _randomRoute(len, maxTier) {
     const starts = [];
     for (let t = 0; t <= maxTier; t++) starts.push(...this._byTier[t]);
     let current = pick(starts);
     const route = [current];
+    const edgeIdxs = [];
     for (let i = 1; i < len; i++) {
-      const neighbors = this._adj[current].filter(n => STATIONS[n].tier <= maxTier);
-      if (neighbors.length === 0) break;
+      const opts = this._adj[current].filter(o => STATIONS[o.to].tier <= maxTier);
+      if (opts.length === 0) break;
       const prev = route[route.length - 2];
-      const choices = neighbors.filter(n => n !== prev);
-      current = pick(choices.length > 0 ? choices : neighbors);
+      const choices = opts.filter(o => o.to !== prev);
+      const choice = pick(choices.length > 0 ? choices : opts);
+      edgeIdxs.push(choice.e);
+      current = choice.to;
       route.push(current);
     }
-    return route;
+    return { route, edgeIdxs };
   }
 
   _generateTrains() {
     for (let i = 0; i < CONFIG.SIM_NUM_TRAINS; i++) {
       const spec = pickType();
-      const route = this._randomRoute(randInt(spec.len[0], spec.len[1]), spec.maxTier);
+      const { route, edgeIdxs } = this._randomRoute(randInt(spec.len[0], spec.len[1]), spec.maxTier);
       if (route.length < 2) continue;
 
       const speed = CONFIG.SIM_SPEED_KMH[spec.type];
       const trainNum = `${TYPE_PREFIX[spec.type]} ${randInt(1000, 9999)}`;
 
+      // Build segments from the edges walked, each carrying the real rail
+      // geometry (reversed if the walk goes against the edge's a→b sense).
       const segments = [];
       let totalKm = 0;
-      for (let j = 0; j < route.length - 1; j++) {
-        const a = stationById.get(route[j]);
-        const b = stationById.get(route[j + 1]);
-        const km = distanceKm(a.lat, a.lng, b.lat, b.lng);
-        segments.push({ from: route[j], to: route[j + 1], km, startKm: totalKm });
-        totalKm += km;
+      for (let j = 0; j < edgeIdxs.length; j++) {
+        const edge = EDGES[edgeIdxs[j]];
+        const from = route[j], to = route[j + 1];
+        const g = edge.a === from ? edge.g : edge.g.slice().reverse();
+        const cum = [0];
+        for (let k = 1; k < g.length; k++) {
+          cum.push(cum[k - 1] + distanceKm(g[k - 1][1], g[k - 1][0], g[k][1], g[k][0]));
+        }
+        segments.push({ from, to, km: edge.km, g, cum, startKm: totalKm });
+        totalKm += edge.km;
       }
+      if (!segments.length) continue;
 
       const train = {
         id: `T${i}`,
@@ -94,6 +105,7 @@ export class Simulator {
         progressKm: 0,
         direction: 1,
         stopped: false,
+        trackAngle: 0,
         lat: 0, lng: 0,
         lastStation: route[0],
         nextStation: route[1],
@@ -127,7 +139,7 @@ export class Simulator {
       train.direction = dir;
       train.stopped = stopped;
 
-      // Interpolate the forecast position along the route segments.
+      // Interpolate the forecast position along the segment's rail geometry.
       let segStart = 0, segIdx = 0;
       for (let j = 0; j < train.segments.length; j++) {
         const seg = train.segments[j];
@@ -135,11 +147,10 @@ export class Simulator {
         segStart += seg.km;
       }
       const seg = train.segments[segIdx];
-      const from = stationById.get(seg.from);
-      const to = stationById.get(seg.to);
-      const frac = Math.min(Math.max((km - segStart) / seg.km, 0), 1);
-      train.lat = from.lat + (to.lat - from.lat) * frac;
-      train.lng = from.lng + (to.lng - from.lng) * frac;
+      const pos = pointAlongGeometry(seg.g, seg.cum, km - segStart);
+      train.lat = pos.lat;
+      train.lng = pos.lng;
+      train.trackAngle = pos.angle;
       train.currentSegIdx = segIdx;
       train.lastStation = seg.from;
       train.nextStation = seg.to;
@@ -165,7 +176,7 @@ export class Simulator {
         number: t.number,
         type: t.type,
         route: t.route,
-        segments: t.segments.map(s => ({ from: s.from, to: s.to, km: s.km })),
+        segments: t.segments,
         totalKm: t.totalKm,
         progressKm: t.progressKm,
         phaseH: elapsedSimH + t.phaseOffset,   // dead-reckoning continues from here
@@ -224,7 +235,7 @@ export class Simulator {
     const elapsedSimH = ((performance.now() - this._startTime) / 1000 * CONFIG.SIM_SPEED_SCALE) / 60;
     return {
       trainId: t.id, number: t.number, type: t.type, route: t.route,
-      segments: t.segments.map(s => ({ from: s.from, to: s.to, km: s.km })),
+      segments: t.segments,
       totalKm: t.totalKm, progressKm: t.progressKm,
       phaseH: elapsedSimH + t.phaseOffset, layoverH: t.layoverH,
       lat: t.lat, lng: t.lng,

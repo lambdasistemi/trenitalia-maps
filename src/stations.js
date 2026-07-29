@@ -1,7 +1,8 @@
-// ── Italian rail network: 6,877 real stations + 8,338 segments ─────────
-// Sourced from OpenStreetMap (railway=station / railway=halt) merged with
-// a curated set of major hubs. Loaded from a bundled, precomputed network
-// so the full map is available offline from the first frame.
+// ── Italian rail network (rail-aligned) ────────────────────────────────
+// Stations sourced from OpenStreetMap (railway=station / railway=halt)
+// merged with curated major hubs, each snapped onto the tracks. Every edge
+// carries the real rail geometry between its stations, so trains follow the
+// actual lines instead of straight chords. Bundled + offline-first.
 //
 // Station tiers: 0 = major hub (curated), 1 = OSM station, 2 = OSM halt.
 
@@ -16,18 +17,18 @@ export const STATIONS = network.stations.map((s, i) => ({
   major: s.t === 0,
 }));
 
-// Edges are pairs of station indices.
-export const CONNECTIONS = network.edges;
+// Edges: { a, b, km, g: [[lng,lat],...] } — geometry runs a → b.
+export const EDGES = network.edges;
 
 export const stationById = new Map(STATIONS.map(s => [s.id, s]));
 
-/** Adjacency list: station index → array of neighbour indices. */
+/** Adjacency list: station index → [{ to, e }] (neighbour + edge index). */
 export function buildAdjacency() {
   const adj = new Array(STATIONS.length);
   for (let i = 0; i < adj.length; i++) adj[i] = [];
-  for (const [a, b] of CONNECTIONS) {
-    adj[a].push(b);
-    adj[b].push(a);
-  }
+  EDGES.forEach((edge, e) => {
+    adj[edge.a].push({ to: edge.b, e });
+    adj[edge.b].push({ to: edge.a, e });
+  });
   return adj;
 }
