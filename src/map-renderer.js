@@ -1,7 +1,7 @@
 // ── Map + train renderer ───────────────────────────────────────────────
 // Renders, in z-order: land mass + glowing coastline, the full national
 // rail network (OSM main + branch), every station as a constant-screen-size
-// dot, live trains as direction-aware rectangles at constant screen size,
+// dot, live trains as direction-aware pointed markers at constant screen size,
 // and a 2D label overlay that reveals station names progressively with zoom.
 //
 // Everything that marks a position (trains, stations) holds a fixed size on
@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { project } from './projection.js';
 import { STATIONS, stationById } from './stations.js';
+import { TRAIN_GLYPH_CONTOUR } from './train-glyph.js';
 import { extractRings, loadRailNetwork } from './geo-loader.js';
 
 const C = CONFIG.COLORS;
@@ -26,8 +27,13 @@ export class MapRenderer {
     this._trainGroup = new THREE.Group();
     this._scene.add(this._trainGroup);
 
-    // Train glyph: a thin rectangle, long axis +Y (direction of travel).
-    this._rectGeo = new THREE.PlaneGeometry(0.42, 1.2);
+    // Train glyph: a tapered marker whose pointed nose faces +Y.
+    const trainShape = new THREE.Shape();
+    const [noseStart, ...outline] = TRAIN_GLYPH_CONTOUR;
+    trainShape.moveTo(noseStart.x, noseStart.y);
+    for (const point of outline) trainShape.lineTo(point.x, point.y);
+    trainShape.closePath();
+    this._trainGeo = new THREE.ShapeGeometry(trainShape);
     this._trainMeshes = new Map();
     this._clusterMeshes = [];
     this._clusterGeo = new THREE.CircleGeometry(0.18, 20);
@@ -190,7 +196,7 @@ export class MapRenderer {
     }
   }
 
-  // ── Trains: oriented rectangles at constant screen size ──────────────
+  // ── Trains: pointed directional markers at constant screen size ──────
   updateTrains(trains, zoom) {
     const now = performance.now();
     if (zoom < CONFIG.LOD_CLUSTER_ZOOM) {
@@ -213,7 +219,7 @@ export class MapRenderer {
 
       let mesh = this._trainMeshes.get(t.id);
       if (!mesh) {
-        mesh = new THREE.Mesh(this._rectGeo,
+        mesh = new THREE.Mesh(this._trainGeo,
           new THREE.MeshBasicMaterial({ color, transparent: true }));
         mesh.position.z = 0.06;
         this._trainGroup.add(mesh);

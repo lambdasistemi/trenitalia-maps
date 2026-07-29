@@ -58,6 +58,8 @@ export const CONFIG = {
   LOD_MINOR_STATION_ZOOM: 0.45,
 
   // ── Rendering ──────────────────────────────────────────────────────
+  MAP_MIN_ZOOM: 0.3,
+  MAP_MAX_ZOOM: 160,
   TRAIN_POINT_SIZE: 8,
   STATION_POINT_SIZE: 4,
   // Delay colour breakpoints (minutes). Documented scale, see legend.
@@ -86,10 +88,9 @@ export const CONFIG = {
   SIM_NUM_TRAINS: 700,
   // Sim clock starts at a busy hour so the map is dense from frame one.
   SIM_START_HOUR: 8,
-  // Time acceleration: 1 real second = SIM_SPEED_SCALE sim-minutes. With
-  // smooth track-following motion (no jitter), 0.8 gives a clear glide:
-  // a 200 km/h train crosses ~1.8 px/s, a regionale ~0.8 px/s.
-  SIM_SPEED_SCALE: 0.8,
+  // Simulation clock multiplier. Keep this at 1 so the distance covered on
+  // screen agrees with the speed shown in the train details.
+  SIM_TIME_SCALE: 1,
   // Turnaround layover at each terminus (hours), so a service pauses at the
   // end of its run instead of instantly reversing.
   SIM_LAYOVER_H: [0.2, 0.5],

@@ -62,7 +62,10 @@ export class Scene {
       e.preventDefault();
       const before = this._screenToWorld(e.clientX, e.clientY);
       const factor = e.deltaY > 0 ? 0.88 : 1.136;
-      this.camera.zoom = Math.max(0.3, Math.min(20, this.camera.zoom * factor));
+      this.camera.zoom = Math.max(
+        CONFIG.MAP_MIN_ZOOM,
+        Math.min(CONFIG.MAP_MAX_ZOOM, this.camera.zoom * factor),
+      );
       this.camera.updateProjectionMatrix();
       const after = this._screenToWorld(e.clientX, e.clientY);
       this._panX += before.x - after.x;

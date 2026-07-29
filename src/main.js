@@ -28,6 +28,7 @@ async function main() {
 
   // ── Rendering + UI ──
   const scene = new Scene(container);
+  window.__mapScene = scene; // debug hook for verification
   const mapRenderer = new MapRenderer(scene, container);
   const hud = new HUD();
   const ui = new UI();

@@ -73,6 +73,47 @@ export function pointAlongGeometry(g, cum, d) {
   return { lat: pos.lat, lng: pos.lng, angle };
 }
 
+/** Convert elapsed real seconds to elapsed simulation hours. */
+export function simulationHours(elapsedSeconds, timeScale = 1) {
+  return elapsedSeconds * timeScale / 3600;
+}
+
+/** Normalize an undirected angle to [-π/2, π/2].
+ *  Train rectangles are 180°-symmetric, so angles separated by π describe
+ *  the same visible orientation. */
+function normalizeUndirectedAngle(angle) {
+  angle %= Math.PI;
+  if (angle > Math.PI / 2) angle -= Math.PI;
+  if (angle < -Math.PI / 2) angle += Math.PI;
+  return angle;
+}
+
+/** Move an undirected heading toward a target by at most `maxStep` radians. */
+export function approachUndirectedAngle(current, target, maxStep) {
+  const heading = normalizeUndirectedAngle(current);
+  const diff = normalizeUndirectedAngle(target - heading);
+  const step = Math.max(-maxStep, Math.min(maxStep, diff));
+  return normalizeUndirectedAngle(heading + step);
+}
+
+/** Normalize a directed angle to [-π, π]. */
+function normalizeDirectedAngle(angle) {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+/** Heading along the oriented track, flipped for a train on its return leg. */
+export function directedTrackHeading(trackAngle, direction) {
+  return normalizeDirectedAngle(trackAngle + (direction < 0 ? Math.PI : 0));
+}
+
+/** Move a directed heading toward a target by at most `maxStep` radians. */
+export function approachDirectedAngle(current, target, maxStep) {
+  const heading = normalizeDirectedAngle(current);
+  const diff = normalizeDirectedAngle(target - heading);
+  const step = Math.max(-maxStep, Math.min(maxStep, diff));
+  return normalizeDirectedAngle(heading + step);
+}
+
 /** Position of a shuttle service at a given phase (hours since departure).
  *  Models a realistic timetable: run origin→dest, lay over at the terminus,
  *  run dest→origin, lay over, repeat. Position is forecast from schedule +

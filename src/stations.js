@@ -6,7 +6,7 @@
 //
 // Station tiers: 0 = major hub (curated), 1 = OSM station, 2 = OSM halt.
 
-import network from './network.json';
+import network from './network.json' with { type: 'json' };
 
 export const STATIONS = network.stations.map((s, i) => ({
   id: i,
