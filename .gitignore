@@ -3,3 +3,6 @@ dist/
 artifact.html
 *.log
 .DS_Store
+gate.sh
+WIP.md
+.orch/
