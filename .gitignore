@@ -3,3 +3,4 @@ dist/
 artifact.html
 *.log
 .DS_Store
+gate.sh
