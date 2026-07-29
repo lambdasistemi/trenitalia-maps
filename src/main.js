@@ -14,6 +14,7 @@ import { UI } from './ui.js';
 import { STATIONS } from './stations.js';
 import { project } from './projection.js';
 import { loadItalyGeo } from './geo-loader.js';
+import { searchAll } from './search.js';
 
 async function main() {
   const container = document.getElementById('app');
@@ -28,6 +29,7 @@ async function main() {
 
   // ── Rendering + UI ──
   const scene = new Scene(container);
+  window.__mapScene = scene; // debug hook for verification
   const mapRenderer = new MapRenderer(scene, container);
   const hud = new HUD();
   const ui = new UI();
@@ -83,10 +85,31 @@ async function main() {
   }
 
   const el = scene.renderer.domElement;
+  ui.onUnpin = () => mapRenderer.clearSelection();
+  ui.buildMapControls({
+    onZoomIn: () => scene.zoomBy(1.5),
+    onZoomOut: () => scene.zoomBy(1 / 1.5),
+    onFit: () => scene.fitItaly(),
+  });
+  ui.buildSearch({
+    provider: (q) => searchAll(q, { stations: STATIONS, trains: trainStore.all() }),
+    onSelect: (r) => {
+      if (r.kind === 'station') {
+        const p = project(r.ref.lat, r.ref.lng);
+        scene.flyTo(p.x, p.y, r.ref.tier === 0 ? 8 : 16);
+      } else {
+        const t = trainStore.get(r.ref.id);
+        if (!t) return;
+        ui.pin(t);
+        mapRenderer.setSelection(t);
+        scene.flyTo(t.x, t.y, Math.max(scene.zoom, 7));
+      }
+    },
+  });
   el.addEventListener('pointermove', (e) => {
     if (scene.didDrag) { ui.hideTooltip(); return; }
     const t = pickTrain(e.clientX, e.clientY);
-    if (t) ui.showTooltip(t, e.clientX, e.clientY);
+    if (t && t.id !== ui.pinnedId) ui.showTooltip(t, e.clientX, e.clientY);
     else ui.hideTooltip();
     el.style.cursor = t ? 'pointer' : 'grab';
   });
@@ -94,7 +117,16 @@ async function main() {
   el.addEventListener('click', (e) => {
     if (scene.didDrag) return;
     const t = pickTrain(e.clientX, e.clientY);
-    if (t) ui.pin(t);
+    if (t) {
+      ui.pin(t);
+      mapRenderer.setSelection(t);
+      ui.hideTooltip();
+    } else {
+      ui.unpin();   // click on empty map deselects
+    }
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') ui.unpin();
   });
 
   // ── Main loop ──
@@ -108,10 +140,14 @@ async function main() {
     mapRenderer.updateTrains(trainStore.all(), scene.zoom);
     mapRenderer.updateLabels(scene.zoom);
 
-    // Keep the pinned pane tracking its live train
-    if (ui.pinnedId) ui.updatePane(trainStore.get(ui.pinnedId));
+    // Keep the pinned pane tracking its live train; drop it if expired
+    if (ui.pinnedId) {
+      const pinned = trainStore.get(ui.pinnedId);
+      if (pinned) ui.updatePane(pinned);
+      else ui.unpin();
+    }
 
-    hud.update({ rateLimiter, cache, trainStore, scheduler, apiClient });
+    hud.update({ rateLimiter, cache, trainStore, scheduler, apiClient, simulator });
     scene.render();
     requestAnimationFrame(frame);
   }

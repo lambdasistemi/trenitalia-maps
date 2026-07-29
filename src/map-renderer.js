@@ -1,7 +1,7 @@
 // ── Map + train renderer ───────────────────────────────────────────────
 // Renders, in z-order: land mass + glowing coastline, the full national
 // rail network (OSM main + branch), every station as a constant-screen-size
-// dot, live trains as direction-aware rectangles at constant screen size,
+// dot, live trains as direction-aware pointed markers at constant screen size,
 // and a 2D label overlay that reveals station names progressively with zoom.
 //
 // Everything that marks a position (trains, stations) holds a fixed size on
@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { project } from './projection.js';
 import { STATIONS, stationById } from './stations.js';
+import { TRAIN_GLYPH_CONTOUR } from './train-glyph.js';
 import { extractRings, loadRailNetwork } from './geo-loader.js';
 
 const C = CONFIG.COLORS;
@@ -26,13 +27,75 @@ export class MapRenderer {
     this._trainGroup = new THREE.Group();
     this._scene.add(this._trainGroup);
 
-    // Train glyph: a thin rectangle, long axis +Y (direction of travel).
-    this._rectGeo = new THREE.PlaneGeometry(0.42, 1.2);
+    // Train glyph: a tapered marker whose pointed nose faces +Y.
+    const trainShape = new THREE.Shape();
+    const [noseStart, ...outline] = TRAIN_GLYPH_CONTOUR;
+    trainShape.moveTo(noseStart.x, noseStart.y);
+    for (const point of outline) trainShape.lineTo(point.x, point.y);
+    trainShape.closePath();
+    this._trainGeo = new THREE.ShapeGeometry(trainShape);
     this._trainMeshes = new Map();
     this._clusterMeshes = [];
     this._clusterGeo = new THREE.CircleGeometry(0.18, 20);
 
+    // Selection: pulsing ring around the pinned train + its route drawn
+    // on top of the rail network.
+    this._selectedId = null;
+    this._selRoute = null;
+    this._selRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.85, 1.02, 40),
+      new THREE.MeshBasicMaterial({ color: C.selection, transparent: true })
+    );
+    this._selRing.position.z = 0.05;
+    this._selRing.visible = false;
+    this._scene.add(this._selRing);
+
     this._initLabelLayer();
+  }
+
+  // ── Selection: highlight one train + its full route ──────────────────
+  setSelection(t) {
+    this.clearSelection();
+    if (!t) return;
+    this._selectedId = t.id;
+    this._selRing.visible = true;
+    if (!t.segments) return;
+    const verts = [];
+    for (const seg of t.segments) {
+      for (let i = 0; i < seg.g.length - 1; i++) {
+        const a = project(seg.g[i][1], seg.g[i][0]);
+        const b = project(seg.g[i + 1][1], seg.g[i + 1][0]);
+        verts.push(a.x, a.y, 0.045, b.x, b.y, 0.045);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    this._selRoute = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color: C.selection, transparent: true, opacity: 0.8 }));
+    this._scene.add(this._selRoute);
+  }
+
+  clearSelection() {
+    this._selectedId = null;
+    this._selRing.visible = false;
+    if (this._selRoute) {
+      this._scene.remove(this._selRoute);
+      this._selRoute.geometry.dispose();
+      this._selRoute.material.dispose();
+      this._selRoute = null;
+    }
+  }
+
+  _updateSelectionRing(trains, zoom, now) {
+    if (!this._selectedId) return;
+    const t = trains.find(tr => tr.id === this._selectedId);
+    if (!t) { this._selRing.visible = false; return; }
+    this._selRing.visible = true;
+    this._selRing.position.x = t.x;
+    this._selRing.position.y = t.y;
+    const pulse = 1 + 0.14 * Math.sin(now * 0.004);
+    this._selRing.scale.setScalar((0.28 / zoom) * pulse);
+    this._selRing.material.opacity = 0.75 + 0.25 * Math.sin(now * 0.004);
   }
 
   // ── 2D label overlay (canvas above the WebGL canvas) ─────────────────
@@ -190,9 +253,10 @@ export class MapRenderer {
     }
   }
 
-  // ── Trains: oriented rectangles at constant screen size ──────────────
+  // ── Trains: pointed directional markers at constant screen size ──────
   updateTrains(trains, zoom) {
     const now = performance.now();
+    this._updateSelectionRing(trains, zoom, now);
     if (zoom < CONFIG.LOD_CLUSTER_ZOOM) {
       this._renderClustered(trains, zoom);
       return;
@@ -213,7 +277,7 @@ export class MapRenderer {
 
       let mesh = this._trainMeshes.get(t.id);
       if (!mesh) {
-        mesh = new THREE.Mesh(this._rectGeo,
+        mesh = new THREE.Mesh(this._trainGeo,
           new THREE.MeshBasicMaterial({ color, transparent: true }));
         mesh.position.z = 0.06;
         this._trainGroup.add(mesh);

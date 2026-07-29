@@ -143,12 +143,15 @@ Simulator (or real API)
 | `api-client.js` | Fetch wrapper: backoff, caching, metrics |
 | `simulator.js` | Simulated Trenitalia data source |
 | `train-store.js` | Train state, dead-reckoning, reconciliation |
-| `scene.js` | Three.js camera, renderer, pan/zoom |
-| `map-renderer.js` | Coastline, rail lines, stations, trains, LOD |
-| `hud.js` | Debug overlay |
-| `projection.js` | Web Mercator lat/lng ↔ world coords |
+| `scene.js` | Three.js camera, renderer, pan/zoom, eased flyTo |
+| `map-renderer.js` | Coastline, rail lines, stations, trains, LOD, selection highlight |
+| `hud.js` | Status card (clock, delay counts, network line) + engineering panel |
+| `ui.js` | Legend, tooltip, pinned pane, search box, map controls |
+| `journey.js` | Direction-aware view of a shuttle's current leg |
+| `search.js` | Pure ranking of stations + trains for the search box |
+| `projection.js` | Web Mercator lat/lng ↔ world coords, track headings |
 | `spatial-index.js` | Grid index for viewport queries |
-| `stations.js` | ~80 Italian stations with real coordinates |
+| `stations.js` | OSM-derived station + edge network with real geometry |
 | `geo-loader.js` | Italy GeoJSON fetch + localStorage cache |
 | `main.js` | Wiring + game loop |
 

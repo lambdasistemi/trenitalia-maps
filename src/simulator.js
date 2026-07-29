@@ -7,13 +7,18 @@
 
 import { STATIONS, EDGES, buildAdjacency, stationById } from './stations.js';
 import { CONFIG } from './config.js';
-import { distanceKm, shuttlePosition, pointAlongGeometry } from './projection.js';
+import {
+  distanceKm,
+  pointAlongGeometry,
+  shuttlePosition,
+  simulationHours,
+} from './projection.js';
+import { randomSimpleRoute } from './route.js';
 
 const TYPE_PREFIX = { regionale: 'R', intercity: 'IC', freccia: 'FR' };
 
 function rand(a, b) { return a + Math.random() * (b - a); }
 function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
-function pick(arr) { return arr[randInt(0, arr.length - 1)]; }
 
 // Service mix ≈ real Italian rail: ~70% regional, 20% intercity, 10% AV.
 const TYPE_MIX = [
@@ -46,20 +51,13 @@ export class Simulator {
   _randomRoute(len, maxTier) {
     const starts = [];
     for (let t = 0; t <= maxTier; t++) starts.push(...this._byTier[t]);
-    let current = pick(starts);
-    const route = [current];
-    const edgeIdxs = [];
-    for (let i = 1; i < len; i++) {
-      const opts = this._adj[current].filter(o => STATIONS[o.to].tier <= maxTier);
-      if (opts.length === 0) break;
-      const prev = route[route.length - 2];
-      const choices = opts.filter(o => o.to !== prev);
-      const choice = pick(choices.length > 0 ? choices : opts);
-      edgeIdxs.push(choice.e);
-      current = choice.to;
-      route.push(current);
-    }
-    return { route, edgeIdxs };
+    return randomSimpleRoute({
+      adjacency: this._adj,
+      starts,
+      length: len,
+      maxTier,
+      tierOf: stationId => STATIONS[stationId].tier,
+    });
   }
 
   _generateTrains() {
@@ -124,15 +122,17 @@ export class Simulator {
 
   /** Advance all trains from their timetable. Position is forecast from
    *  schedule + speed (a shuttle: out, layover, back, layover); live delay
-   *  shifts the phase. 1 real second = SIM_SPEED_SCALE sim-minutes. */
+   *  shifts the phase. */
   _tick() {
     const elapsedSec = (performance.now() - this._startTime) / 1000;
-    const elapsedSimH = (elapsedSec * CONFIG.SIM_SPEED_SCALE) / 60;
+    const elapsedSimH = simulationHours(elapsedSec, CONFIG.SIM_TIME_SCALE);
 
     for (const train of this._trains.values()) {
       train.status = 'running';
 
-      const phaseH = elapsedSimH + train.phaseOffset - train.delayMin / 60;
+      // Motion phase is continuous. Delay is live metadata and must never
+      // teleport a train when its reported value changes.
+      const phaseH = elapsedSimH + train.phaseOffset;
       const { km, dir, stopped } = shuttlePosition(
         train.totalKm, train.speedKmh, train.layoverH, phaseH);
       train.progressKm = km;
@@ -168,7 +168,10 @@ export class Simulator {
    *  is reserved for volatile position/delay deltas. */
   bootstrapTimetable() {
     this._tick();
-    const elapsedSimH = ((performance.now() - this._startTime) / 1000 * CONFIG.SIM_SPEED_SCALE) / 60;
+    const elapsedSimH = simulationHours(
+      (performance.now() - this._startTime) / 1000,
+      CONFIG.SIM_TIME_SCALE,
+    );
     const out = [];
     for (const t of this._trains.values()) {
       out.push({
@@ -181,6 +184,8 @@ export class Simulator {
         progressKm: t.progressKm,
         phaseH: elapsedSimH + t.phaseOffset,   // dead-reckoning continues from here
         layoverH: t.layoverH,
+        direction: t.direction,
+        trackAngle: t.trackAngle,
         lat: t.lat,
         lng: t.lng,
         lastStation: t.lastStation,
@@ -232,12 +237,16 @@ export class Simulator {
 
     const t = this._trains.get(trainId);
     if (!t) throw { status: 404, message: 'Not found' };
-    const elapsedSimH = ((performance.now() - this._startTime) / 1000 * CONFIG.SIM_SPEED_SCALE) / 60;
+    const elapsedSimH = simulationHours(
+      (performance.now() - this._startTime) / 1000,
+      CONFIG.SIM_TIME_SCALE,
+    );
     return {
       trainId: t.id, number: t.number, type: t.type, route: t.route,
       segments: t.segments,
       totalKm: t.totalKm, progressKm: t.progressKm,
       phaseH: elapsedSimH + t.phaseOffset, layoverH: t.layoverH,
+      direction: t.direction, trackAngle: t.trackAngle,
       lat: t.lat, lng: t.lng,
       lastStation: t.lastStation, nextStation: t.nextStation,
       currentSegIdx: t.currentSegIdx, delayMin: Math.round(t.delayMin),
@@ -247,6 +256,13 @@ export class Simulator {
   }
 
   allTrainIds() { return [...this._trains.keys()]; }
+
+  /** Wall-clock hours of the simulated day (starts at SIM_START_HOUR). */
+  clockHours() {
+    const elapsedSimH = simulationHours(
+      (performance.now() - this._startTime) / 1000, CONFIG.SIM_TIME_SCALE);
+    return (CONFIG.SIM_START_HOUR + elapsedSimH) % 24;
+  }
 
   _latency() {
     const [lo, hi] = CONFIG.SIM_LATENCY_MS;

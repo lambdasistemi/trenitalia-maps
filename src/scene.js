@@ -60,9 +60,13 @@ export class Scene {
     // Zoom toward the cursor
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
+      this._fly = null;   // user takes control
       const before = this._screenToWorld(e.clientX, e.clientY);
       const factor = e.deltaY > 0 ? 0.88 : 1.136;
-      this.camera.zoom = Math.max(0.3, Math.min(20, this.camera.zoom * factor));
+      this.camera.zoom = Math.max(
+        CONFIG.MAP_MIN_ZOOM,
+        Math.min(CONFIG.MAP_MAX_ZOOM, this.camera.zoom * factor),
+      );
       this.camera.updateProjectionMatrix();
       const after = this._screenToWorld(e.clientX, e.clientY);
       this._panX += before.x - after.x;
@@ -71,10 +75,23 @@ export class Scene {
     }, { passive: false });
 
     el.addEventListener('pointerdown', (e) => {
+      this._fly = null;   // user takes control
       this._dragging = true;
       this._moved = false;
       this._lastMouse = { x: e.clientX, y: e.clientY };
       el.setPointerCapture(e.pointerId);
+    });
+
+    // Double-click: animated 2× zoom keeping the clicked point fixed
+    el.addEventListener('dblclick', (e) => {
+      const factor = 2;
+      const zoom = Math.min(CONFIG.MAP_MAX_ZOOM, this.camera.zoom * factor);
+      const eff = zoom / this.camera.zoom;
+      const w = this._screenToWorld(e.clientX, e.clientY);
+      this.flyTo(
+        w.x + (this._panX - w.x) / eff,
+        w.y + (this._panY - w.y) / eff,
+        zoom, 450);
     });
 
     el.addEventListener('pointermove', (e) => {
@@ -144,7 +161,48 @@ export class Scene {
   get zoom() { return this.camera.zoom; }
   get didDrag() { return this._moved; }
 
+  // ── Eased camera moves ───────────────────────────────────────────────
+
+  /** Animate pan+zoom to a target. Any user input cancels the flight. */
+  flyTo(x, y, zoom, durationMs = 800) {
+    this._fly = {
+      t0: performance.now(),
+      duration: durationMs,
+      from: { x: this._panX, y: this._panY, zoom: this.camera.zoom },
+      to: {
+        x, y,
+        zoom: Math.max(CONFIG.MAP_MIN_ZOOM, Math.min(CONFIG.MAP_MAX_ZOOM, zoom)),
+      },
+    };
+  }
+
+  /** Animated zoom about the viewport centre (for the +/− buttons). */
+  zoomBy(factor) {
+    const target = this._fly?.to.zoom ?? this.camera.zoom;
+    this.flyTo(this._panX, this._panY, target * factor, 300);
+  }
+
+  /** Reset to the national view. */
+  fitItaly() {
+    this.flyTo(0, 0, 1, 700);
+  }
+
+  _stepFly() {
+    if (!this._fly) return;
+    const { t0, duration, from, to } = this._fly;
+    const t = Math.min(1, (performance.now() - t0) / duration);
+    const e = t < 0.5 ? 4 * t * t * t : 1 - ((-2 * t + 2) ** 3) / 2; // easeInOutCubic
+    this._panX = from.x + (to.x - from.x) * e;
+    this._panY = from.y + (to.y - from.y) * e;
+    // Interpolate zoom exponentially — perceptually uniform.
+    this.camera.zoom = from.zoom * Math.exp(Math.log(to.zoom / from.zoom) * e);
+    this.camera.updateProjectionMatrix();
+    this._applyPan();
+    if (t >= 1) this._fly = null;
+  }
+
   render() {
+    this._stepFly();
     this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
   }
