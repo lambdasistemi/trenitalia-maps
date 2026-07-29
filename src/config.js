@@ -48,9 +48,10 @@ export const CONFIG = {
   // Screen-space grid cell size (px) for clustering.
   LOD_CLUSTER_CELL_PX: 50,
   // Progressive station labels: zoom at which each tier appears.
-  // Tier 0 (major hubs) is always on; denser tiers reveal as you zoom in.
-  LABEL_ZOOM_TIER1: 1.6,
-  LABEL_ZOOM_TIER2: 4.0,
+  // Tier 0 (major hubs) is always on; city stations show at the default
+  // national view, and every halt reveals as you zoom into a region.
+  LABEL_ZOOM_TIER1: 0.7,
+  LABEL_ZOOM_TIER2: 2.2,
   // Minimum on-screen spacing (px) between visible labels (declutter).
   LABEL_MIN_SPACING_PX: 60,
   // Below this zoom, hide minor stations entirely.
