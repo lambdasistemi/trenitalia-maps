@@ -47,8 +47,12 @@ export const CONFIG = {
   LOD_CLUSTER_ZOOM: 0.35,
   // Screen-space grid cell size (px) for clustering.
   LOD_CLUSTER_CELL_PX: 50,
-  // Below this zoom, hide station labels.
-  LOD_LABEL_ZOOM: 0.6,
+  // Progressive station labels: zoom at which each tier appears.
+  // Tier 0 (major hubs) is always on; denser tiers reveal as you zoom in.
+  LABEL_ZOOM_TIER1: 1.6,
+  LABEL_ZOOM_TIER2: 4.0,
+  // Minimum on-screen spacing (px) between visible labels (declutter).
+  LABEL_MIN_SPACING_PX: 60,
   // Below this zoom, hide minor stations entirely.
   LOD_MINOR_STATION_ZOOM: 0.45,
 
@@ -78,7 +82,7 @@ export const CONFIG = {
   },
 
   // ── Simulator ──────────────────────────────────────────────────────
-  SIM_NUM_TRAINS: 300,
+  SIM_NUM_TRAINS: 700,
   SIM_LATENCY_MS: [40, 180],       // random latency range
   SIM_ERROR_RATE: 0.03,            // 3% chance of 429
   SIM_SPEED_KMH: { regionale: 90, intercity: 130, freccia: 250 },

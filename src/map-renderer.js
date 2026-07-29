@@ -1,12 +1,14 @@
 // ── Map + train renderer ───────────────────────────────────────────────
-// Renders, in z-order: sea backdrop, land mass + glowing coastline, the
-// full national rail network (OSM main + branch), stations + labels, and
-// live trains as direction-aware chevrons coloured by delay.
+// Renders, in z-order: land mass + glowing coastline, the full national
+// rail network (OSM main + branch), every station as a constant-screen-size
+// dot, live trains as direction-aware rectangles at constant screen size,
+// and a 2D label overlay that reveals station names progressively with zoom.
 //
-// LOD (clustering) is a RENDERING concern only — it never triggers calls.
+// Everything that marks a position (trains, stations) holds a fixed size on
+// screen: zooming in separates them spatially instead of growing them, so
+// you zoom to see WHERE things are, not to make them bigger.
 
 import * as THREE from 'three';
-import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { CONFIG } from './config.js';
 import { project } from './projection.js';
 import { STATIONS, stationById } from './stations.js';
@@ -15,29 +17,45 @@ import { extractRings, loadRailNetwork } from './geo-loader.js';
 const C = CONFIG.COLORS;
 
 export class MapRenderer {
-  constructor(scene) {
+  constructor(scene, container) {
     this._sceneObj = scene;
     this._scene = scene.scene;
     this._camera = scene.camera;
+    this._container = container;
 
     this._trainGroup = new THREE.Group();
     this._scene.add(this._trainGroup);
 
-    // ── Shared train chevron geometry (points +Y, centred) ──
-    const s = new THREE.Shape();
-    s.moveTo(0, 0.62);
-    s.lineTo(0.36, -0.42);
-    s.lineTo(0, -0.14);
-    s.lineTo(-0.36, -0.42);
-    s.closePath();
-    this._chevronGeo = new THREE.ShapeGeometry(s);
-    this._glowGeo = new THREE.CircleGeometry(0.62, 16);
-
-    this._trainMeshes = new Map();   // id → { arrow, glow }
+    // Train glyph: a thin rectangle, long axis +Y (direction of travel).
+    this._rectGeo = new THREE.PlaneGeometry(0.42, 1.2);
+    this._trainMeshes = new Map();
     this._clusterMeshes = [];
     this._clusterGeo = new THREE.CircleGeometry(0.18, 20);
 
-    this._labels = [];               // CSS2DObjects for declutter pass
+    this._initLabelLayer();
+  }
+
+  // ── 2D label overlay (canvas above the WebGL canvas) ─────────────────
+  _initLabelLayer() {
+    this._labelCanvas = document.createElement('canvas');
+    const s = this._labelCanvas.style;
+    s.position = 'absolute'; s.top = '0'; s.left = '0';
+    s.pointerEvents = 'none'; s.zIndex = '5';
+    this._container.appendChild(this._labelCanvas);
+    this._labelCtx = this._labelCanvas.getContext('2d');
+    this._resizeLabelLayer();
+    window.addEventListener('resize', () => this._resizeLabelLayer());
+  }
+
+  _resizeLabelLayer() {
+    const dpr = Math.min(window.devicePixelRatio, 2);
+    const w = this._container.clientWidth, h = this._container.clientHeight;
+    this._labelCanvas.width = w * dpr;
+    this._labelCanvas.height = h * dpr;
+    this._labelCanvas.style.width = w + 'px';
+    this._labelCanvas.style.height = h + 'px';
+    this._labelCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._labelW = w; this._labelH = h;
   }
 
   // ── Coastline: filled land + glowing border ──────────────────────────
@@ -50,7 +68,6 @@ export class MapRenderer {
       });
       if (pts.length < 3) continue;
 
-      // Land fill
       const shape = new THREE.Shape(pts);
       const fill = new THREE.Mesh(
         new THREE.ShapeGeometry(shape),
@@ -59,7 +76,6 @@ export class MapRenderer {
       fill.position.z = -0.2;
       this._scene.add(fill);
 
-      // Glowing border: wide faint stroke + thin bright stroke
       const v3 = pts.map(p => new THREE.Vector3(p.x, p.y, 0));
       const lineGeo = new THREE.BufferGeometry().setFromPoints(v3);
       const glow = new THREE.Line(lineGeo,
@@ -75,8 +91,8 @@ export class MapRenderer {
   // ── Full national rail network from bundled OSM geometry ─────────────
   drawRailNetwork() {
     const { main, branch } = loadRailNetwork();
-    this._addRailLines(branch, C.railBranch, 0.45, 0.0);   // branch: dim, below
-    this._addRailLines(main, C.railMain, 0.75, 0.01);       // main: bright, above
+    this._addRailLines(branch, C.railBranch, 0.45, 0.0);
+    this._addRailLines(main, C.railMain, 0.75, 0.01);
   }
 
   _addRailLines(lines, color, opacity, z) {
@@ -90,53 +106,81 @@ export class MapRenderer {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
-    this._scene.add(new THREE.LineSegments(geo, mat));
+    this._scene.add(new THREE.LineSegments(geo,
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity })));
   }
 
-  // ── Stations + always-on labels (major hubs) ─────────────────────────
+  // ── Stations: constant-screen-size dots (two tiers) ──────────────────
+  // sizeAttenuation: false → the dot is always the same pixel size no matter
+  // the zoom. Also precomputes projected coords for the label layer.
   drawStations() {
-    for (const st of STATIONS) {
-      const p = project(st.lat, st.lng);
-      const size = st.major ? 0.11 : 0.06;
-      const dot = new THREE.Mesh(
-        new THREE.CircleGeometry(size, 12),
-        new THREE.MeshBasicMaterial({
-          color: st.major ? C.stationMajor : C.station,
-          transparent: true, opacity: st.major ? 1 : 0.7,
-        })
-      );
-      dot.position.set(p.x, p.y, 0.03);
-      this._scene.add(dot);
+    for (const s of STATIONS) {
+      const p = project(s.lat, s.lng);
+      s.px = p.x; s.py = p.y;   // cache for the label pass
+    }
+    this._addStationPoints(STATIONS.filter(s => s.major), C.stationMajor, 7, 1.0);
+    this._addStationPoints(STATIONS.filter(s => !s.major), C.station, 3.5, 0.5);
+  }
 
-      if (st.major) {
-        const el = document.createElement('div');
-        el.className = 'station-label';
-        el.textContent = st.name;
-        const label = new CSS2DObject(el);
-        label.position.set(p.x, p.y, 0.04);
-        label.userData = { x: p.x, y: p.y, el };
-        this._scene.add(label);
-        this._labels.push(label);
+  _addStationPoints(list, color, size, opacity) {
+    const pos = new Float32Array(list.length * 3);
+    for (let i = 0; i < list.length; i++) {
+      pos[i * 3] = list[i].px;
+      pos[i * 3 + 1] = list[i].py;
+      pos[i * 3 + 2] = 0.03;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this._scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+      color, size, sizeAttenuation: false, transparent: true, opacity,
+    })));
+  }
+
+  // ── Labels: all names, revealed progressively with zoom, decluttered ──
+  updateLabels(zoom) {
+    const ctx = this._labelCtx;
+    ctx.clearRect(0, 0, this._labelW, this._labelH);
+
+    const cam = this._camera;
+    const visW = (cam.right - cam.left) / zoom;
+    const visH = (cam.top - cam.bottom) / zoom;
+    const panX = cam.position.x, panY = cam.position.y;
+    const halfW = visW / 2, halfH = visH / 2;
+
+    // Denser tiers reveal as you zoom in.
+    const maxTier = zoom >= CONFIG.LABEL_ZOOM_TIER2 ? 2
+      : zoom >= CONFIG.LABEL_ZOOM_TIER1 ? 1 : 0;
+
+    // Screen-space occupancy grid for decluttering.
+    const cell = CONFIG.LABEL_MIN_SPACING_PX;
+    const used = new Set();
+
+    ctx.textBaseline = 'middle';
+    const halfLabelW = this._labelW / 2, halfLabelH = this._labelH / 2;
+
+    // Major hubs first so they win the declutter contest.
+    for (let tier = 0; tier <= maxTier; tier++) {
+      ctx.font = tier === 0
+        ? '700 12px "Space Grotesk", system-ui, sans-serif'
+        : '500 10px "Space Grotesk", system-ui, sans-serif';
+      ctx.fillStyle = tier === 0 ? 'rgba(205,232,252,0.95)' : 'rgba(150,182,208,0.85)';
+
+      for (const s of STATIONS) {
+        if (s.tier !== tier) continue;
+        if (s.px < panX - halfW || s.px > panX + halfW ||
+            s.py < panY - halfH || s.py > panY + halfH) continue;
+
+        const sx = ((s.px - panX) / visW + 0.5) * this._labelW;
+        const sy = (0.5 - (s.py - panY) / visH) * this._labelH;
+        const key = Math.floor(sx / cell) + ',' + Math.floor(sy / cell);
+        if (used.has(key)) continue;
+        used.add(key);
+        ctx.fillText(s.name, sx + 7, sy);
       }
     }
   }
 
-  /** Declutter labels: hide overlapping ones, prioritising hubs. */
-  updateLabels(zoom) {
-    const placed = [];
-    const minDist = 46 / zoom; // world-space exclusion radius
-    // Major hubs first (they're all major here); sort top-to-bottom for stability.
-    const sorted = [...this._labels].sort((a, b) => b.userData.y - a.userData.y);
-    for (const label of sorted) {
-      const { x, y, el } = label.userData;
-      const clash = placed.some(p => Math.hypot(p.x - x, p.y - y) < minDist);
-      el.style.display = clash ? 'none' : 'block';
-      if (!clash) placed.push({ x, y });
-    }
-  }
-
-  // ── Trains: direction-aware chevrons, delay colour, glow ─────────────
+  // ── Trains: oriented rectangles at constant screen size ──────────────
   updateTrains(trains, zoom) {
     const now = performance.now();
     if (zoom < CONFIG.LOD_CLUSTER_ZOOM) {
@@ -145,7 +189,7 @@ export class MapRenderer {
     }
     for (const m of this._clusterMeshes) m.visible = false;
 
-    const glyphScale = 0.30 / zoom;   // constant on-screen size
+    const glyphScale = 0.28 / zoom;   // constant on-screen size
     const seen = new Set();
 
     for (const t of trains) {
@@ -157,36 +201,26 @@ export class MapRenderer {
         : t.delayMin >= CONFIG.DELAY_MINOR_MIN ? C.trainMinorDelay
         : C.trainOnTime;
 
-      let entry = this._trainMeshes.get(t.id);
-      if (!entry) {
-        const arrow = new THREE.Mesh(this._chevronGeo,
+      let mesh = this._trainMeshes.get(t.id);
+      if (!mesh) {
+        mesh = new THREE.Mesh(this._rectGeo,
           new THREE.MeshBasicMaterial({ color, transparent: true }));
-        const glow = new THREE.Mesh(this._glowGeo,
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.18 }));
-        arrow.position.z = 0.06;
-        glow.position.z = 0.05;
-        this._trainGroup.add(glow, arrow);
-        entry = { arrow, glow };
-        this._trainMeshes.set(t.id, entry);
+        mesh.position.z = 0.06;
+        this._trainGroup.add(mesh);
+        this._trainMeshes.set(t.id, mesh);
       }
-
-      const { arrow, glow } = entry;
-      arrow.material.color.setHex(color);
-      glow.material.color.setHex(color);
-      arrow.material.opacity = stale ? 0.4 : 1.0;
-      glow.material.opacity = stale ? 0.06 : 0.18;
-
-      arrow.position.x = glow.position.x = t.x;
-      arrow.position.y = glow.position.y = t.y;
-      arrow.rotation.z = this._heading(t);
-      arrow.scale.setScalar(glyphScale);
-      glow.scale.setScalar(glyphScale * 1.6);
-      arrow.visible = glow.visible = true;
+      mesh.material.color.setHex(color);
+      mesh.material.opacity = stale ? 0.45 : 1.0;
+      mesh.position.x = t.x;
+      mesh.position.y = t.y;
+      mesh.rotation.z = this._heading(t);
+      mesh.scale.setScalar(glyphScale);
+      mesh.visible = true;
     }
 
-    for (const [id, entry] of this._trainMeshes) {
+    for (const [id, mesh] of this._trainMeshes) {
       if (!seen.has(id)) {
-        this._trainGroup.remove(entry.arrow, entry.glow);
+        this._trainGroup.remove(mesh);
         this._trainMeshes.delete(id);
       }
     }
@@ -199,18 +233,13 @@ export class MapRenderer {
     const a = stationById.get(seg.from);
     const b = stationById.get(seg.to);
     if (!a || !b) return 0;
-    const pa = project(a.lat, a.lng);
-    const pb = project(b.lat, b.lng);
-    // Chevron points +Y; rotate so +Y aligns with travel direction.
-    return Math.atan2(pb.x - pa.x, pb.y - pa.y);
+    // Chevron/rect points +Y; rotate so +Y aligns with travel direction.
+    return Math.atan2(b.px - a.px, b.py - a.py);
   }
 
   _renderClustered(trains, zoom) {
-    for (const entry of this._trainMeshes.values()) {
-      entry.arrow.visible = false;
-      entry.glow.visible = false;
-    }
-    const cellWorld = (CONFIG.LOD_CLUSTER_CELL_PX / this._sceneObj._height) *
+    for (const mesh of this._trainMeshes.values()) mesh.visible = false;
+    const cellWorld = (CONFIG.LOD_CLUSTER_CELL_PX / this._labelH) *
       (this._camera.top - this._camera.bottom) / zoom;
     const cells = new Map();
     for (const t of trains) {

@@ -27,7 +27,7 @@ async function main() {
 
   // ── Rendering + UI ──
   const scene = new Scene(container);
-  const mapRenderer = new MapRenderer(scene);
+  const mapRenderer = new MapRenderer(scene, container);
   const hud = new HUD();
   const ui = new UI();
 
@@ -44,10 +44,12 @@ async function main() {
   }
 
   // ── Scheduler: spends the bounded budget on live refreshes ──
+  // Only major hubs are board-polled (all 6,877 stations would flood the
+  // queue and starve train updates); every train is progress-polled.
   const scheduler = new Scheduler(apiClient, rateLimiter);
   for (const s of STATIONS) {
-    const p = project(s.lat, s.lng);
-    scheduler.addStation(s.id, p.x, p.y);
+    if (!s.major) continue;
+    scheduler.addStation(s.id, s.px, s.py);
   }
   for (const t of trainStore.all()) {
     scheduler.addTrain(t.id);
