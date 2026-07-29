@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 
 import {
   approachUndirectedAngle,
+  pointAlongGeometry,
   simulationHours,
   shuttlePosition,
 } from '../src/projection.js';
 import { randomSimpleRoute } from '../src/route.js';
+
+/** Direction the +Y glyph nose points after mesh.rotation.z = angle (CCW). */
+const noseVector = angle => [-Math.sin(angle), Math.cos(angle)];
 
 const deg = value => value * Math.PI / 180;
 
@@ -27,6 +31,25 @@ test('undirected heading takes the short path across the 180-degree seam', () =>
 
   assert.ok(Math.abs(undirectedDistance(deg(89), next) - deg(1)) < 1e-12);
   assert.ok(Math.abs(undirectedDistance(next, deg(-89)) - deg(1)) < 1e-12);
+});
+
+test('a train moving east renders with its nose pointing east', () => {
+  // Straight west→east track at constant latitude. World x grows with lng.
+  const g = [[12.0, 41.8], [12.5, 41.8], [13.0, 41.8]];
+  const cum = [0, 41, 82];   // approx km, only relative spacing matters
+  const { angle } = pointAlongGeometry(g, cum, 41);
+  const [nx] = noseVector(angle);
+
+  assert.ok(nx > 0.99, `nose x=${nx}, expected ~1 (east)`);
+});
+
+test('a train moving north renders with its nose pointing north', () => {
+  const g = [[12.5, 41.0], [12.5, 41.5], [12.5, 42.0]];
+  const cum = [0, 55, 110];
+  const { angle } = pointAlongGeometry(g, cum, 55);
+  const [, ny] = noseVector(angle);
+
+  assert.ok(ny > 0.99, `nose y=${ny}, expected ~1 (north)`);
 });
 
 test('generated routes never revisit a station', () => {

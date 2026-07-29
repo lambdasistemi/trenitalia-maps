@@ -61,15 +61,17 @@ function pointAtKm(g, cum, d) {
 
 /** Position + track heading at distance `d` (km) along a polyline.
  *  g: array of [lng,lat]; cum: cumulative km at each vertex (cum[0]=0).
- *  The heading is the bearing of a ±400 m chord around the point, so it
- *  reflects the local track direction rather than jittering per vertex. */
+ *  The heading is taken from a ±400 m chord around the point, so it
+ *  reflects the local track direction rather than jittering per vertex.
+ *  The angle is a CCW rotation for a +Y-nosed mesh (mesh.rotation.z),
+ *  NOT a compass bearing: east is -π/2, not +π/2. */
 export function pointAlongGeometry(g, cum, d) {
   const pos = pointAtKm(g, cum, d);
   const W = 0.4;
   const before = pointAtKm(g, cum, d - W);
   const after = pointAtKm(g, cum, d + W);
   const a = project(before.lat, before.lng), b = project(after.lat, after.lng);
-  const angle = Math.atan2(b.x - a.x, b.y - a.y);
+  const angle = Math.atan2(-(b.x - a.x), b.y - a.y);
   return { lat: pos.lat, lng: pos.lng, angle };
 }
 
