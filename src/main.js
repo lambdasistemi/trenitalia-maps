@@ -14,6 +14,7 @@ import { UI } from './ui.js';
 import { STATIONS } from './stations.js';
 import { project } from './projection.js';
 import { loadItalyGeo } from './geo-loader.js';
+import { searchAll } from './search.js';
 
 async function main() {
   const container = document.getElementById('app');
@@ -89,6 +90,21 @@ async function main() {
     onZoomIn: () => scene.zoomBy(1.5),
     onZoomOut: () => scene.zoomBy(1 / 1.5),
     onFit: () => scene.fitItaly(),
+  });
+  ui.buildSearch({
+    provider: (q) => searchAll(q, { stations: STATIONS, trains: trainStore.all() }),
+    onSelect: (r) => {
+      if (r.kind === 'station') {
+        const p = project(r.ref.lat, r.ref.lng);
+        scene.flyTo(p.x, p.y, r.ref.tier === 0 ? 8 : 16);
+      } else {
+        const t = trainStore.get(r.ref.id);
+        if (!t) return;
+        ui.pin(t);
+        mapRenderer.setSelection(t);
+        scene.flyTo(t.x, t.y, Math.max(scene.zoom, 7));
+      }
+    },
   });
   el.addEventListener('pointermove', (e) => {
     if (scene.didDrag) { ui.hideTooltip(); return; }

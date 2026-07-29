@@ -101,6 +101,34 @@ canvas { display: block; }
 #tooltip .tt-row { display: flex; justify-content: space-between; gap: 14px; line-height: 1.7; }
 #tooltip .tt-dim { color: var(--ink-dim); }
 
+/* ── Search (top-center) ── */
+#search {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  width: 300px; z-index: 25;
+}
+#search-input {
+  width: 100%; padding: 8px 14px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--ink); font-family: var(--mono); font-size: 12px;
+  backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  outline: none;
+}
+#search-input:focus { border-color: var(--accent); }
+#search-input::placeholder { color: var(--ink-dim); }
+#search-results {
+  display: none; margin-top: 6px; border-radius: 10px; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--border);
+  backdrop-filter: blur(12px); box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+}
+.search-item {
+  display: flex; align-items: center; gap: 10px; padding: 7px 14px;
+  color: var(--ink); font-family: var(--mono); font-size: 12px; cursor: pointer;
+}
+.search-item.active, .search-item:hover { background: #16283c; }
+.search-item .search-kind { color: var(--accent); flex: none; }
+.search-item .search-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-item .search-sub { margin-left: auto; color: var(--ink-dim); font-size: 10px; flex: none; }
+
 /* ── Map controls (bottom-right) ── */
 #controls {
   position: absolute; bottom: 16px; right: 14px; z-index: 10;

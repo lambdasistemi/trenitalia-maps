@@ -47,6 +47,67 @@ export class UI {
     document.getElementById('app').appendChild(this.pane);
   }
 
+  /** Top-center search over stations and live trains.
+   *  provider(query) → ranked results; onSelect(result) acts on the choice. */
+  buildSearch({ provider, onSelect }) {
+    const wrap = document.createElement('div');
+    wrap.id = 'search';
+    wrap.innerHTML = `
+      <input id="search-input" type="text" placeholder="search station or train — /"
+             autocomplete="off" spellcheck="false" />
+      <div id="search-results"></div>`;
+    document.getElementById('app').appendChild(wrap);
+    const input = wrap.querySelector('#search-input');
+    const list = wrap.querySelector('#search-results');
+    let results = [], active = -1;
+
+    const close = () => { list.style.display = 'none'; list.innerHTML = ''; results = []; active = -1; };
+    const render = () => {
+      if (!results.length) { close(); return; }
+      list.style.display = 'block';
+      list.innerHTML = results.map((r, i) => {
+        const name = r.kind === 'station' ? r.ref.name : r.ref.number;
+        const sub = r.kind === 'station' ? 'station' : (r.ref.type ?? 'train');
+        return `<div class="search-item${i === active ? ' active' : ''}" data-i="${i}">
+          <span class="search-kind">${r.kind === 'station' ? '⊙' : '➤'}</span>
+          <span class="search-name">${name}</span>
+          <span class="search-sub">${sub}</span></div>`;
+      }).join('');
+    };
+    const choose = (i) => {
+      const r = results[i];
+      if (!r) return;
+      close();
+      input.value = '';
+      input.blur();
+      onSelect(r);
+    };
+
+    input.addEventListener('input', () => {
+      results = provider(input.value);
+      active = results.length ? 0 : -1;
+      render();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { active = Math.min(active + 1, results.length - 1); render(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { active = Math.max(active - 1, 0); render(); e.preventDefault(); }
+      else if (e.key === 'Enter') choose(active);
+      else if (e.key === 'Escape') { close(); input.value = ''; input.blur(); e.stopPropagation(); }
+    });
+    list.addEventListener('pointerdown', (e) => {
+      const item = e.target.closest('.search-item');
+      if (item) { e.preventDefault(); choose(+item.dataset.i); }
+    });
+    input.addEventListener('blur', () => setTimeout(close, 150));
+    window.addEventListener('keydown', (e) => {
+      if (e.key === '/' && e.target.tagName !== 'INPUT') {
+        e.preventDefault();
+        input.focus();
+        input.select();   // typing replaces any leftover query
+      }
+    });
+  }
+
   /** Bottom-right map controls + a one-line interaction hint. */
   buildMapControls({ onZoomIn, onZoomOut, onFit }) {
     const controls = document.createElement('div');
@@ -65,7 +126,7 @@ export class UI {
 
     const hint = document.createElement('div');
     hint.id = 'hint';
-    hint.textContent = 'drag to pan · scroll to zoom · click a train to inspect';
+    hint.textContent = 'drag to pan · scroll to zoom · click a train to inspect · / to search';
     document.getElementById('app').appendChild(hint);
   }
 
