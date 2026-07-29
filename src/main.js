@@ -85,6 +85,11 @@ async function main() {
 
   const el = scene.renderer.domElement;
   ui.onUnpin = () => mapRenderer.clearSelection();
+  ui.buildMapControls({
+    onZoomIn: () => scene.zoomBy(1.5),
+    onZoomOut: () => scene.zoomBy(1 / 1.5),
+    onFit: () => scene.fitItaly(),
+  });
   el.addEventListener('pointermove', (e) => {
     if (scene.didDrag) { ui.hideTooltip(); return; }
     const t = pickTrain(e.clientX, e.clientY);

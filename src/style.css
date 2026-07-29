@@ -101,6 +101,27 @@ canvas { display: block; }
 #tooltip .tt-row { display: flex; justify-content: space-between; gap: 14px; line-height: 1.7; }
 #tooltip .tt-dim { color: var(--ink-dim); }
 
+/* ── Map controls (bottom-right) ── */
+#controls {
+  position: absolute; bottom: 16px; right: 14px; z-index: 10;
+  display: flex; flex-direction: column; gap: 6px;
+}
+#controls button {
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--border);
+  color: var(--ink); font-family: var(--mono); font-size: 17px; line-height: 1;
+  backdrop-filter: blur(10px); box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+#controls button:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ── Interaction hint (bottom-center) ── */
+#hint {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  color: var(--ink-dim); font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.4px; z-index: 10; pointer-events: none;
+  text-shadow: 0 1px 3px #000;
+}
+
 /* ── Pinned inspection pane ── */
 #pane {
   position: absolute; top: 14px; right: 14px; width: 288px;

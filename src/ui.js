@@ -47,6 +47,28 @@ export class UI {
     document.getElementById('app').appendChild(this.pane);
   }
 
+  /** Bottom-right map controls + a one-line interaction hint. */
+  buildMapControls({ onZoomIn, onZoomOut, onFit }) {
+    const controls = document.createElement('div');
+    controls.id = 'controls';
+    const button = (label, title, fn) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.title = title;
+      b.addEventListener('click', fn);
+      controls.appendChild(b);
+    };
+    button('+', 'zoom in', onZoomIn);
+    button('−', 'zoom out', onZoomOut);
+    button('⌂', 'fit Italy', onFit);
+    document.getElementById('app').appendChild(controls);
+
+    const hint = document.createElement('div');
+    hint.id = 'hint';
+    hint.textContent = 'drag to pan · scroll to zoom · click a train to inspect';
+    document.getElementById('app').appendChild(hint);
+  }
+
   /** Hover tooltip. t = train state, x/y = client pixels. */
   showTooltip(t, x, y) {
     const delayCls = t.delayMin >= CONFIG.DELAY_MAJOR_MIN ? 'var(--red)'
