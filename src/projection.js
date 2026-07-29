@@ -47,13 +47,19 @@ export function lerpGeo(lat1, lng1, lat2, lng2, t) {
   return { lat: lat1 + (lat2 - lat1) * t, lng: lng1 + (lng2 - lng1) * t };
 }
 
-/** Triangle-wave a monotonic distance into a smooth 0..totalKm back-and-forth.
- *  Returns { km, dir }: position along the route and travel direction
- *  (+1 outbound, −1 return). No teleport — trains reverse at the ends. */
-export function pingpong(dist, totalKm) {
-  const cycle = totalKm * 2;
-  const into = ((dist % cycle) + cycle) % cycle;
-  return into <= totalKm
-    ? { km: into, dir: 1 }
-    : { km: cycle - into, dir: -1 };
+/** Position of a shuttle service at a given phase (hours since departure).
+ *  Models a realistic timetable: run origin→dest, lay over at the terminus,
+ *  run dest→origin, lay over, repeat. Position is forecast from schedule +
+ *  speed; live delay simply shifts the phase. Returns { km, dir, stopped }:
+ *  km along the route, travel direction (+1 out / −1 back / 0 stopped). */
+export function shuttlePosition(totalKm, speedKmh, layoverH, phaseH) {
+  const tripH = totalKm / speedKmh;
+  const cycleH = 2 * (tripH + layoverH);
+  const p = ((phaseH % cycleH) + cycleH) % cycleH;
+  if (p < tripH) return { km: (p / tripH) * totalKm, dir: 1, stopped: false };
+  if (p < tripH + layoverH) return { km: totalKm, dir: 0, stopped: true };
+  if (p < 2 * tripH + layoverH) {
+    return { km: totalKm - ((p - tripH - layoverH) / tripH) * totalKm, dir: -1, stopped: false };
+  }
+  return { km: 0, dir: 0, stopped: true };
 }

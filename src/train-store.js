@@ -9,16 +9,22 @@
 // toward the truth over several frames (no teleporting).
 
 import { CONFIG } from './config.js';
-import { project, lerpGeo, pingpong } from './projection.js';
+import { project, lerpGeo, shuttlePosition } from './projection.js';
 import { stationById } from './stations.js';
 
 export class TrainStore {
   constructor() {
     this._trains = new Map(); // trainId → TrainState
+    this._rail = null;        // RailIndex for snapping onto real tracks
     this.renderedCount = 0;
     this.sampledThisSecond = 0;
     this._sampleWindow = 0;
     this._sampleWindowStart = performance.now();
+  }
+
+  /** Provide the rail index used to snap forecast positions onto tracks. */
+  setRailIndex(rail) {
+    this._rail = rail;
   }
 
   /** Seed a train from static timetable data (free — outside live budget).
@@ -38,7 +44,9 @@ export class TrainStore {
       x: p.x, y: p.y,
       targetLat: data.lat, targetLng: data.lng,
       progressKm: data.progressKm,
-      dist: data.dist ?? 0,
+      phaseH: data.phaseH ?? 0,
+      layoverH: data.layoverH ?? 0.3,
+      direction: 1,
       heading: 0,
       currentSegIdx: data.currentSegIdx,
       delayMin: data.delayMin,
@@ -65,7 +73,8 @@ export class TrainStore {
       existing.lastSample = performance.now();
       existing.status = data.status;
       existing.progressKm = data.progressKm;
-      if (data.dist != null) existing.dist = data.dist;  // keep dead-reckoning in sync
+      if (data.phaseH != null) existing.phaseH = data.phaseH;  // keep dead-reckoning in sync
+      if (data.layoverH != null) existing.layoverH = data.layoverH;
       existing.currentSegIdx = data.currentSegIdx;
       existing.reconciling = true;
     } else {
@@ -150,15 +159,21 @@ export class TrainStore {
 
       const dt = (now - t.lastTickTime) / 1000; // real seconds since last tick
 
-      // ── Dead-reckoning: advance monotonic dist, ping-pong into a smooth
-      //    back-and-forth position (no teleport at the ends). ──
+      // ── Forecast from the timetable: advance the phase and evaluate the
+      //    shuttle schedule (out → layover → back → layover). ──
+      let dir = t.direction ?? 1;
+      let stopped = false;
       if (t.segments && t.status === 'running') {
-        const kmAdvanced = (dt * CONFIG.SIM_SPEED_SCALE / 60) * t.speedKmh;
-        t.dist = (t.dist ?? 0) + kmAdvanced;
-        const { km } = pingpong(t.dist, t.totalKm);
+        t.phaseH = (t.phaseH ?? 0) + (dt * CONFIG.SIM_SPEED_SCALE) / 60;
+        const pos = shuttlePosition(
+          t.totalKm, t.speedKmh, t.layoverH ?? 0.3, t.phaseH - t.delayMin / 60);
+        const km = pos.km;
+        dir = pos.dir;
+        stopped = pos.stopped;
         t.progressKm = km;
+        t.direction = dir;
 
-        // Locate the segment containing km and interpolate lat/lng.
+        // Straight-line forecast position along the route segments.
         let segStart = 0, segIdx = 0;
         for (let j = 0; j < t.segments.length; j++) {
           const seg = t.segments[j];
@@ -170,23 +185,34 @@ export class TrainStore {
         const to = stationById.get(seg.to);
         if (from && to) {
           const frac = Math.min(Math.max((km - segStart) / seg.km, 0), 1);
-          const pos = lerpGeo(from.lat, from.lng, to.lat, to.lng, frac);
-          t.lat = pos.lat;
-          t.lng = pos.lng;
+          const p = lerpGeo(from.lat, from.lng, to.lat, to.lng, frac);
+          t.lat = p.lat;
+          t.lng = p.lng;
         }
         t.currentSegIdx = segIdx;
       }
 
       t.lastTickTime = now;
 
-      // ── Project to world coords and smooth the heading from movement ──
-      const oldX = t.x, oldY = t.y;
-      const p = project(t.lat, t.lng);
-      t.x = p.x;
-      t.y = p.y;
-      const dx = t.x - oldX, dy = t.y - oldY;
-      if (dx * dx + dy * dy > 1e-9) {
-        const target = Math.atan2(dx, dy); // glyph points +Y
+      // ── Project, then snap onto the nearest real track so the forecast
+      //    follows the visible rail instead of cutting chords. ──
+      const proj = project(t.lat, t.lng);
+      let fx = proj.x, fy = proj.y, trackAngle = null;
+      if (this._rail) {
+        const snap = this._rail.nearest(proj.x, proj.y);
+        if (snap.dist < CONFIG.SNAP_MAX_WORLD) {
+          fx = snap.x;
+          fy = snap.y;
+          trackAngle = snap.angle;
+        }
+      }
+      t.x = fx;
+      t.y = fy;
+
+      // ── Heading: align to the track bearing (flipped on the return leg),
+      //    smoothed so the glyph banks gently through curves. ──
+      if (trackAngle != null && dir !== 0) {
+        const target = trackAngle + (dir < 0 ? Math.PI : 0);
         let diff = target - (t.heading ?? 0);
         while (diff > Math.PI) diff -= 2 * Math.PI;
         while (diff < -Math.PI) diff += 2 * Math.PI;

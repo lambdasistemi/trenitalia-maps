@@ -7,7 +7,7 @@
 
 import { STATIONS, buildAdjacency, stationById } from './stations.js';
 import { CONFIG } from './config.js';
-import { distanceKm, pingpong } from './projection.js';
+import { distanceKm, shuttlePosition } from './projection.js';
 
 const TYPE_PREFIX = { regionale: 'R', intercity: 'IC', freccia: 'FR' };
 
@@ -17,9 +17,9 @@ function pick(arr) { return arr[randInt(0, arr.length - 1)]; }
 
 // Service mix ≈ real Italian rail: ~70% regional, 20% intercity, 10% AV.
 const TYPE_MIX = [
-  { type: 'regionale', weight: 0.70, len: [2, 4], maxTier: 2 },
-  { type: 'intercity', weight: 0.20, len: [4, 7], maxTier: 1 },
-  { type: 'freccia',   weight: 0.10, len: [5, 9], maxTier: 0 },
+  { type: 'regionale', weight: 0.70, len: [5, 10], maxTier: 2 },
+  { type: 'intercity', weight: 0.20, len: [7, 13], maxTier: 1 },
+  { type: 'freccia',   weight: 0.10, len: [9, 16], maxTier: 0 },
 ];
 
 function pickType() {
@@ -86,14 +86,20 @@ export class Simulator {
         totalKm,
         speedKmh: speed,
         departHour: rand(5, 23),
+        // Turnaround time at each terminus + phase offset so services are
+        // spread around their cycle rather than departing in a pack.
+        layoverH: rand(CONFIG.SIM_LAYOVER_H[0], CONFIG.SIM_LAYOVER_H[1]),
         delayMin: Math.random() < 0.3 ? rand(1, 45) : rand(0, 3),
         currentSegIdx: 0,
         progressKm: 0,
+        direction: 1,
+        stopped: false,
         lat: 0, lng: 0,
         lastStation: route[0],
         nextStation: route[1],
         status: 'running',
       };
+      train.phaseOffset = -train.departHour;
 
       this._trains.set(train.id, train);
       for (const sid of route) {
@@ -104,38 +110,37 @@ export class Simulator {
     this._tick();
   }
 
-  /** Advance all trains based on elapsed sim time. Every train runs
-   *  continuously, gliding back and forth along its route (ping-pong) so
-   *  it reverses smoothly at the ends instead of teleporting. */
+  /** Advance all trains from their timetable. Position is forecast from
+   *  schedule + speed (a shuttle: out, layover, back, layover); live delay
+   *  shifts the phase. 1 real second = SIM_SPEED_SCALE sim-minutes. */
   _tick() {
     const elapsedSec = (performance.now() - this._startTime) / 1000;
-    const simHour = (CONFIG.SIM_START_HOUR + (elapsedSec * CONFIG.SIM_SPEED_SCALE) / 60) % 24;
+    const elapsedSimH = (elapsedSec * CONFIG.SIM_SPEED_SCALE) / 60;
 
     for (const train of this._trains.values()) {
       train.status = 'running';
 
-      // Phase along the day, offset by departure hour, so trains spread out
-      // along their routes rather than bunching up.
-      let phase = simHour - train.departHour;
-      if (phase < 0) phase += 24;
-      const dist = phase * train.speedKmh;          // monotonic km travelled
-      const { km, dir } = pingpong(dist, train.totalKm);
-      train.dist = dist;
+      const phaseH = elapsedSimH + train.phaseOffset - train.delayMin / 60;
+      const { km, dir, stopped } = shuttlePosition(
+        train.totalKm, train.speedKmh, train.layoverH, phaseH);
+      train.progressKm = km;
       train.direction = dir;
+      train.stopped = stopped;
 
-      let segIdx = 0;
+      // Interpolate the forecast position along the route segments.
+      let segStart = 0, segIdx = 0;
       for (let j = 0; j < train.segments.length; j++) {
-        if (km >= train.segments[j].startKm) segIdx = j;
+        const seg = train.segments[j];
+        if (km <= segStart + seg.km || j === train.segments.length - 1) { segIdx = j; break; }
+        segStart += seg.km;
       }
       const seg = train.segments[segIdx];
-      const segProgress = (km - seg.startKm) / seg.km;
-
       const from = stationById.get(seg.from);
       const to = stationById.get(seg.to);
-      train.lat = from.lat + (to.lat - from.lat) * Math.min(segProgress, 1);
-      train.lng = from.lng + (to.lng - from.lng) * Math.min(segProgress, 1);
+      const frac = Math.min(Math.max((km - segStart) / seg.km, 0), 1);
+      train.lat = from.lat + (to.lat - from.lat) * frac;
+      train.lng = from.lng + (to.lng - from.lng) * frac;
       train.currentSegIdx = segIdx;
-      train.progressKm = km;
       train.lastStation = seg.from;
       train.nextStation = seg.to;
 
@@ -152,6 +157,7 @@ export class Simulator {
    *  is reserved for volatile position/delay deltas. */
   bootstrapTimetable() {
     this._tick();
+    const elapsedSimH = ((performance.now() - this._startTime) / 1000 * CONFIG.SIM_SPEED_SCALE) / 60;
     const out = [];
     for (const t of this._trains.values()) {
       out.push({
@@ -162,7 +168,8 @@ export class Simulator {
         segments: t.segments.map(s => ({ from: s.from, to: s.to, km: s.km })),
         totalKm: t.totalKm,
         progressKm: t.progressKm,
-        dist: t.dist,
+        phaseH: elapsedSimH + t.phaseOffset,   // dead-reckoning continues from here
+        layoverH: t.layoverH,
         lat: t.lat,
         lng: t.lng,
         lastStation: t.lastStation,
@@ -214,10 +221,13 @@ export class Simulator {
 
     const t = this._trains.get(trainId);
     if (!t) throw { status: 404, message: 'Not found' };
+    const elapsedSimH = ((performance.now() - this._startTime) / 1000 * CONFIG.SIM_SPEED_SCALE) / 60;
     return {
       trainId: t.id, number: t.number, type: t.type, route: t.route,
       segments: t.segments.map(s => ({ from: s.from, to: s.to, km: s.km })),
-      totalKm: t.totalKm, progressKm: t.progressKm, dist: t.dist, lat: t.lat, lng: t.lng,
+      totalKm: t.totalKm, progressKm: t.progressKm,
+      phaseH: elapsedSimH + t.phaseOffset, layoverH: t.layoverH,
+      lat: t.lat, lng: t.lng,
       lastStation: t.lastStation, nextStation: t.nextStation,
       currentSegIdx: t.currentSegIdx, delayMin: Math.round(t.delayMin),
       speedKmh: t.speedKmh, status: t.status, scheduledHour: t.departHour,

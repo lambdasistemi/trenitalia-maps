@@ -13,7 +13,8 @@ import { HUD } from './hud.js';
 import { UI } from './ui.js';
 import { STATIONS } from './stations.js';
 import { project } from './projection.js';
-import { loadItalyGeo } from './geo-loader.js';
+import { loadItalyGeo, loadRailNetwork } from './geo-loader.js';
+import { RailIndex } from './rail-index.js';
 
 async function main() {
   const container = document.getElementById('app');
@@ -36,6 +37,12 @@ async function main() {
   mapRenderer.drawCoastline(await loadItalyGeo());
   mapRenderer.drawRailNetwork();
   mapRenderer.drawStations();
+
+  // Rail spatial index: lets dead-reckoning snap trains onto real tracks.
+  const rail = loadRailNetwork();
+  const railIndex = new RailIndex([...rail.main, ...rail.branch]);
+  trainStore.setRailIndex(railIndex);
+  window.__rail = railIndex; // debug hook for verification
 
   // ── Bootstrap: seed every train from the timetable (free, one-time) ──
   // The map is fully alive from frame one. The live budget below is spent

@@ -84,13 +84,22 @@ export const CONFIG = {
 
   // ── Simulator ──────────────────────────────────────────────────────
   SIM_NUM_TRAINS: 700,
-  // Sim clock starts at a busy hour so the map is dense from frame one
-  // (1 real second = 1 sim minute).
+  // Sim clock starts at a busy hour so the map is dense from frame one.
   SIM_START_HOUR: 8,
-  // Motion speed multiplier. <1 calms things down so trains glide rather
-  // than rocket; 0.45 ≈ a relaxed live-map pace.
-  SIM_SPEED_SCALE: 0.45,
+  // Time acceleration: 1 real second = SIM_SPEED_SCALE sim-minutes. 0.35 is
+  // a calm live-map pace (a 200 km/h train glides at well under 1 px/frame).
+  SIM_SPEED_SCALE: 0.35,
+  // Turnaround layover at each terminus (hours), so a service pauses at the
+  // end of its run instead of instantly reversing.
+  SIM_LAYOVER_H: [0.2, 0.5],
   SIM_LATENCY_MS: [40, 180],       // random latency range
   SIM_ERROR_RATE: 0.03,            // 3% chance of 429
-  SIM_SPEED_KMH: { regionale: 90, intercity: 130, freccia: 250 },
+  // Realistic service speeds (km/h).
+  SIM_SPEED_KMH: { regionale: 90, intercity: 140, freccia: 200 },
+
+  // ── Track snapping ─────────────────────────────────────────────────
+  // Snap a train onto the nearest real rail line if one is within this many
+  // world units (~1 world unit ≈ 84 km), so forecast positions stay on the
+  // visible tracks. Beyond this, keep the straight-line forecast.
+  SNAP_MAX_WORLD: 0.18,
 };
