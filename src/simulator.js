@@ -7,7 +7,7 @@
 
 import { STATIONS, buildAdjacency, stationById } from './stations.js';
 import { CONFIG } from './config.js';
-import { distanceKm } from './projection.js';
+import { distanceKm, pingpong } from './projection.js';
 
 const TYPE_PREFIX = { regionale: 'R', intercity: 'IC', freccia: 'FR' };
 
@@ -104,35 +104,38 @@ export class Simulator {
     this._tick();
   }
 
-  /** Advance all trains based on elapsed sim time (1 real s = 1 sim min).
-   *  Every train runs continuously, looping its route, so the map stays
-   *  dense and alive at all times. */
+  /** Advance all trains based on elapsed sim time. Every train runs
+   *  continuously, gliding back and forth along its route (ping-pong) so
+   *  it reverses smoothly at the ends instead of teleporting. */
   _tick() {
-    const elapsedMin = (performance.now() - this._startTime) / 1000;
-    const simHour = (CONFIG.SIM_START_HOUR + elapsedMin / 60) % 24;
+    const elapsedSec = (performance.now() - this._startTime) / 1000;
+    const simHour = (CONFIG.SIM_START_HOUR + (elapsedSec * CONFIG.SIM_SPEED_SCALE) / 60) % 24;
 
     for (const train of this._trains.values()) {
       train.status = 'running';
 
-      // Phase along the day, offset by the train's departure hour, so
-      // trains are spread out along their routes rather than bunched.
+      // Phase along the day, offset by departure hour, so trains spread out
+      // along their routes rather than bunching up.
       let phase = simHour - train.departHour;
       if (phase < 0) phase += 24;
-      const kmIntoTrip = (phase * train.speedKmh) % train.totalKm;
+      const dist = phase * train.speedKmh;          // monotonic km travelled
+      const { km, dir } = pingpong(dist, train.totalKm);
+      train.dist = dist;
+      train.direction = dir;
 
       let segIdx = 0;
       for (let j = 0; j < train.segments.length; j++) {
-        if (kmIntoTrip >= train.segments[j].startKm) segIdx = j;
+        if (km >= train.segments[j].startKm) segIdx = j;
       }
       const seg = train.segments[segIdx];
-      const segProgress = (kmIntoTrip - seg.startKm) / seg.km;
+      const segProgress = (km - seg.startKm) / seg.km;
 
       const from = stationById.get(seg.from);
       const to = stationById.get(seg.to);
       train.lat = from.lat + (to.lat - from.lat) * Math.min(segProgress, 1);
       train.lng = from.lng + (to.lng - from.lng) * Math.min(segProgress, 1);
       train.currentSegIdx = segIdx;
-      train.progressKm = kmIntoTrip;
+      train.progressKm = km;
       train.lastStation = seg.from;
       train.nextStation = seg.to;
 
@@ -159,6 +162,7 @@ export class Simulator {
         segments: t.segments.map(s => ({ from: s.from, to: s.to, km: s.km })),
         totalKm: t.totalKm,
         progressKm: t.progressKm,
+        dist: t.dist,
         lat: t.lat,
         lng: t.lng,
         lastStation: t.lastStation,
@@ -213,7 +217,7 @@ export class Simulator {
     return {
       trainId: t.id, number: t.number, type: t.type, route: t.route,
       segments: t.segments.map(s => ({ from: s.from, to: s.to, km: s.km })),
-      totalKm: t.totalKm, progressKm: t.progressKm, lat: t.lat, lng: t.lng,
+      totalKm: t.totalKm, progressKm: t.progressKm, dist: t.dist, lat: t.lat, lng: t.lng,
       lastStation: t.lastStation, nextStation: t.nextStation,
       currentSegIdx: t.currentSegIdx, delayMin: Math.round(t.delayMin),
       speedKmh: t.speedKmh, status: t.status, scheduledHour: t.departHour,

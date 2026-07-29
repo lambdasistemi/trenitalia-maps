@@ -46,3 +46,14 @@ export function distanceKm(lat1, lng1, lat2, lng2) {
 export function lerpGeo(lat1, lng1, lat2, lng2, t) {
   return { lat: lat1 + (lat2 - lat1) * t, lng: lng1 + (lng2 - lng1) * t };
 }
+
+/** Triangle-wave a monotonic distance into a smooth 0..totalKm back-and-forth.
+ *  Returns { km, dir }: position along the route and travel direction
+ *  (+1 outbound, −1 return). No teleport — trains reverse at the ends. */
+export function pingpong(dist, totalKm) {
+  const cycle = totalKm * 2;
+  const into = ((dist % cycle) + cycle) % cycle;
+  return into <= totalKm
+    ? { km: into, dir: 1 }
+    : { km: cycle - into, dir: -1 };
+}

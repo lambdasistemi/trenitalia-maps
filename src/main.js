@@ -24,6 +24,7 @@ async function main() {
   const simulator = new Simulator();
   const apiClient = new ApiClient(simulator, rateLimiter, cache);
   const trainStore = new TrainStore();
+  window.__trains = trainStore; // debug hook for verification
 
   // ── Rendering + UI ──
   const scene = new Scene(container);

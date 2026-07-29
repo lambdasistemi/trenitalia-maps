@@ -9,7 +9,7 @@
 // toward the truth over several frames (no teleporting).
 
 import { CONFIG } from './config.js';
-import { project, lerpGeo } from './projection.js';
+import { project, lerpGeo, pingpong } from './projection.js';
 import { stationById } from './stations.js';
 
 export class TrainStore {
@@ -38,6 +38,8 @@ export class TrainStore {
       x: p.x, y: p.y,
       targetLat: data.lat, targetLng: data.lng,
       progressKm: data.progressKm,
+      dist: data.dist ?? 0,
+      heading: 0,
       currentSegIdx: data.currentSegIdx,
       delayMin: data.delayMin,
       // Seeded from timetable, not yet confirmed by a live sample.
@@ -63,6 +65,7 @@ export class TrainStore {
       existing.lastSample = performance.now();
       existing.status = data.status;
       existing.progressKm = data.progressKm;
+      if (data.dist != null) existing.dist = data.dist;  // keep dead-reckoning in sync
       existing.currentSegIdx = data.currentSegIdx;
       existing.reconciling = true;
     } else {
@@ -145,55 +148,51 @@ export class TrainStore {
         continue;
       }
 
-      // ── Reconciliation blend ──
-      if (t.reconciling) {
-        const a = CONFIG.RECONCILE_ALPHA;
-        t.lat += (t.targetLat - t.lat) * a;
-        t.lng += (t.targetLng - t.lng) * a;
-        if (Math.abs(t.lat - t.targetLat) < 0.0001 && Math.abs(t.lng - t.targetLng) < 0.0001) {
-          t.lat = t.targetLat;
-          t.lng = t.targetLng;
-          t.reconciling = false;
-        }
-      }
+      const dt = (now - t.lastTickTime) / 1000; // real seconds since last tick
 
-      // ── Dead-reckoning: advance along route ──
-      if (!t.reconciling && t.segments && t.status === 'running') {
-        const dt = (now - t.lastTickTime) / 1000; // seconds
-        // 1 real second = 1 sim minute (matches simulator)
-        const simHoursElapsed = dt / 60;
-        const kmAdvanced = simHoursElapsed * t.speedKmh;
-        t.progressKm = (t.progressKm + kmAdvanced) % t.totalKm;
+      // ── Dead-reckoning: advance monotonic dist, ping-pong into a smooth
+      //    back-and-forth position (no teleport at the ends). ──
+      if (t.segments && t.status === 'running') {
+        const kmAdvanced = (dt * CONFIG.SIM_SPEED_SCALE / 60) * t.speedKmh;
+        t.dist = (t.dist ?? 0) + kmAdvanced;
+        const { km } = pingpong(t.dist, t.totalKm);
+        t.progressKm = km;
 
-        // Find current segment and interpolate position
-        let segIdx = 0;
+        // Locate the segment containing km and interpolate lat/lng.
+        let segStart = 0, segIdx = 0;
         for (let j = 0; j < t.segments.length; j++) {
           const seg = t.segments[j];
-          const segStart = t.segments.slice(0, j).reduce((s, x) => s + x.km, 0);
-          if (t.progressKm >= segStart) segIdx = j;
+          if (km <= segStart + seg.km || j === t.segments.length - 1) { segIdx = j; break; }
+          segStart += seg.km;
         }
         const seg = t.segments[segIdx];
-        if (seg) {
-          const segStart = t.segments.slice(0, segIdx).reduce((s, x) => s + x.km, 0);
-          const frac = Math.min((t.progressKm - segStart) / seg.km, 1);
-          const from = stationById.get(seg.from);
-          const to = stationById.get(seg.to);
-          if (from && to) {
-            const pos = lerpGeo(from.lat, from.lng, to.lat, to.lng, frac);
-            t.lat = pos.lat;
-            t.lng = pos.lng;
-          }
+        const from = stationById.get(seg.from);
+        const to = stationById.get(seg.to);
+        if (from && to) {
+          const frac = Math.min(Math.max((km - segStart) / seg.km, 0), 1);
+          const pos = lerpGeo(from.lat, from.lng, to.lat, to.lng, frac);
+          t.lat = pos.lat;
+          t.lng = pos.lng;
         }
+        t.currentSegIdx = segIdx;
       }
 
       t.lastTickTime = now;
 
-      // Project to world coords
+      // ── Project to world coords and smooth the heading from movement ──
+      const oldX = t.x, oldY = t.y;
       const p = project(t.lat, t.lng);
       t.x = p.x;
       t.y = p.y;
+      const dx = t.x - oldX, dy = t.y - oldY;
+      if (dx * dx + dy * dy > 1e-9) {
+        const target = Math.atan2(dx, dy); // glyph points +Y
+        let diff = target - (t.heading ?? 0);
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        t.heading = (t.heading ?? 0) + diff * 0.2;
+      }
 
-      // Count rendered (not expired, not too stale)
       if (age < CONFIG.EXPIRE_THRESHOLD_MS) rendered++;
     }
 

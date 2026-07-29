@@ -236,15 +236,9 @@ export class MapRenderer {
     }
   }
 
-  /** Heading (radians) from the train's current segment direction. */
+  /** Heading (radians) — smoothed in the train store from actual movement. */
   _heading(t) {
-    if (!t.segments || !t.segments.length) return 0;
-    const seg = t.segments[Math.min(t.currentSegIdx ?? 0, t.segments.length - 1)];
-    const a = stationById.get(seg.from);
-    const b = stationById.get(seg.to);
-    if (!a || !b) return 0;
-    // Chevron/rect points +Y; rotate so +Y aligns with travel direction.
-    return Math.atan2(b.px - a.px, b.py - a.py);
+    return t.heading ?? 0;
   }
 
   _renderClustered(trains, zoom) {
