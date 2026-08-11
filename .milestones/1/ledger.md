@@ -1,6 +1,6 @@
 # M1 — Public polished live map (trenitalia-maps)
 
-**STATE: OMNIA PAUSA 2026-08-08T20:55Z on top of the standing operator milestone pause (07-29)** — desk and all 5 lanes PARKED; resume = machine RELEASE + operator three words (resume, glyph pick Q-002 rec B, upstream ruling rec B); then inbox-wake lanes (rulings NOTE-002..006 queued) and re-arm watchdog. Note for resume: seat contract changed 08-05 (Claude T.O. -> Codex commit owner -> Claude auditor; pair-programming deprecated) — lane briefs referencing driver+navigator pairs need updating at wake.
+**STATE: OMNIA PAUSA 2026-08-11T18:35Z on top of the standing operator milestone pause (07-29)** — desk and all 5 lanes PARKED; resume = machine RELEASE + operator three words (resume, glyph pick Q-002 rec B, upstream ruling rec B); then inbox-wake lanes (rulings NOTE-002..006 queued) and re-arm watchdog. Note for resume: seat contract changed 08-05 (Claude T.O. -> Codex commit owner -> Claude auditor; pair-programming deprecated) — lane briefs referencing driver+navigator pairs need updating at wake.
 — whole session parked, all wake sources quiesced, desk wakes only on operator
 input. Release: RELEASE-2026-07-31.md in /tmp/machine/pausa/. On release,
 re-arm per rearm_on_release in the pausa ack; lanes resume via inbox notes.
